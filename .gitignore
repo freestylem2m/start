@@ -5,3 +5,8 @@ config.log
 config.status
 configure
 netmanage
+.depend
+src/driver_config.h
+src/driver_setup.h
+*.o
+.ycm_extra_conf.pyc
