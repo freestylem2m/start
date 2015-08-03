@@ -1,0 +1,5 @@
+
+OBJS=src/netmanage.o src/config.o
+
+netmanage: $(OBJS)
+	cc -o netmanage $(OBJS)
