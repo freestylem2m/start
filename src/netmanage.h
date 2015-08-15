@@ -6,7 +6,7 @@
 #define	d_printf(...)	{ printf("%s:%s:%d ",__FILE__,__func__,__LINE__); \
 						printf(__VA_ARGS__); }
 #else
-#define	d_printf()
+#define	d_printf(...)
 #endif
 
 #ifndef UNUSED

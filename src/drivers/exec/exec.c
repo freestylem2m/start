@@ -73,7 +73,7 @@ int exec_shutdown( context_t *context)
 #define CMD_ARGS_MAX 32
 #define PATH_MAX 512
 
-char *process_command( const context_t *context, char *cmd, char *exe, char **vec )
+char *process_command( char *cmd, char *exe, char **vec )
 {
 	//d_printf("cmd = %s\n", cmd);
 
@@ -169,7 +169,7 @@ int exec_launch( const context_t *context )
 
 	cmd = strdup( cmdline );
 
-	const char *path = process_command( context, cmd, exe, vec );
+	const char *path = process_command( cmd, exe, vec );
 
 	exec_config_t *cf = (exec_config_t *) context->data;
 
@@ -233,23 +233,25 @@ int exec_launch( const context_t *context )
 }
 
 #define MAX_READ_BUFFER 1024
-int exec_emit(context_t *context, event_t event, void *event_data )
+int exec_emit(context_t *ctx, event_t event, driver_data_t *event_data )
 {
-	UNUSED(context);
 	UNUSED(event_data);
 
-	exec_config_t *cf = (exec_config_t *) context->data;
-	fd_list_t *fd = (fd_list_t *)event_data;
+	fd_list_t *fd = 0;
+	exec_config_t *cf = (exec_config_t *) ctx->data;
+
+	if( event_data->type == TYPE_FD )
+		fd = event_data->fd_data;
 
 	switch( event ) {
 		case EVENT_INIT:
 			d_printf( "INIT event triggered\n");
 			{
-				//event_add( context->event, 0, EH_READ );
-				event_add( context->event, SIGQUIT, EH_SIGNAL );
-				event_add( context->event, SIGCHLD, EH_SIGNAL );
+				//event_add( ctx->event, 0, EH_READ );
+				event_add( ctx->event, SIGQUIT, EH_SIGNAL );
+				event_add( ctx->event, SIGCHLD, EH_SIGNAL );
 
-				if( ! exec_launch( context ) ) {
+				if( ! exec_launch( ctx ) ) {
 					cf->state = EXEC_STATE_RUNNING;
 				} else {
 					d_printf("exec() failed to start process\n");
@@ -291,10 +293,10 @@ int exec_emit(context_t *context, event_t event, void *event_data )
 					if( fd->fd == cf->fd_in ) {
 						d_printf("\n *\n * child program has terminated\n *\n\n");
 
-						event_delete( context->event, cf->fd_in, EH_NONE );
+						event_delete( ctx->event, cf->fd_in, EH_NONE );
 						close( cf->fd_in );
 
-						event_delete( context->event, cf->fd_out, EH_NONE );
+						event_delete( ctx->event, cf->fd_out, EH_NONE );
 						close( cf->fd_out );
 
 						// Complete termination is a two step process.
@@ -305,10 +307,10 @@ int exec_emit(context_t *context, event_t event, void *event_data )
 							if( (cf->flags & EXEC_RESPAWN) ) {
 								d_printf("attempting to respawn\n");
 								cf->state = EXEC_STATE_IDLE;
-								return emit( context, EVENT_INIT, 0L );
+								return emit( ctx, EVENT_INIT, DRIVER_NONE );
 							} else {
 								d_printf("done here. cleaning up.\n");
-								context->flags |= CTX_DEAD;
+								context_terminate( ctx );
 								return 0;
 							}
 						}
@@ -338,8 +340,14 @@ int exec_emit(context_t *context, event_t event, void *event_data )
 					if( cf->state == EXEC_STATE_STOPPING ) {
 						// program termination already signalled
 						d_printf(" ** now is a good time to die ** \n");
-						cf->state = EXEC_STATE_IDLE;
-						return emit( context, EVENT_INIT, 0L );
+						if( (cf->flags & EXEC_RESPAWN) ) {
+							cf->state = EXEC_STATE_IDLE;
+							return emit( ctx, EVENT_INIT, DRIVER_NONE );
+						} else {
+							d_printf("done here. cleaning up.\n");
+							context_terminate( ctx );
+							return 0;
+						}
 					}
 					cf->state = EXEC_STATE_STOPPING;
 				}

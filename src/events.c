@@ -362,8 +362,10 @@ int handle_pending_signals( void )
 			if( fdl->flags & EH_DELETED ) {
 				event_handler_signals.prune_pending ++;
 			} else {
-				if( fdl->flags & EH_SIGNAL && sigismember( &temp_signals, fdl->fd ) )
-					e->handler( e->context, EVENT_SIGNAL, fdl );
+				if( fdl->flags & EH_SIGNAL && sigismember( &temp_signals, fdl->fd ) ) {
+					driver_data_t data = { TYPE_FD, .fd_data = fdl };
+					e->handler( e->context, EVENT_SIGNAL, &data );
+				}
 			}
 			fdl = fdl->next;
 		}
@@ -386,12 +388,13 @@ int handle_event_set( fd_set *readfds, fd_set *writefds, fd_set *exceptfds )
 			if( fdl->flags & EH_DELETED ) {
 				event_handler_signals.prune_pending ++;
 			} else {
-				if( (fdl->flags & EH_EXCEPTION) &&  FD_ISSET( fdl->fd, exceptfds ) )
-					e->handler( e->context, EVENT_EXCEPTION, fdl );
+				driver_data_t data = { TYPE_FD, .fd_data = fdl };
+				if( (fdl->flags & EH_EXCEPTION) &&  FD_ISSET( fdl->fd, exceptfds ) ) 
+					e->handler( e->context, EVENT_EXCEPTION, &data );
 				if( (fdl->flags & EH_WRITE) &&  FD_ISSET( fdl->fd, writefds ) )
-					e->handler( e->context,  EVENT_WRITE, fdl );
+					e->handler( e->context,  EVENT_WRITE, &data );
 				if( (fdl->flags & EH_READ) &&  FD_ISSET( fdl->fd, readfds ) )
-					e->handler( e->context, EVENT_READ, fdl );
+					e->handler( e->context, EVENT_READ, &data );
 
 			}
 			fdl = fdl->next;
@@ -405,10 +408,12 @@ int handle_timer_events()
 {
 	event_handler_list_t *e = event_handler_list;
 
+	driver_data_t tick = { TYPE_TICK, { .tick = time(0L) } };
+
 	while( e ) {
 		if( ! (e->flags & EH_DELETED) )
 			if( e->flags & EH_WANT_TICK )
-				e->handler( e->context, EVENT_TICK, 0L );
+				e->handler( e->context, EVENT_TICK, &tick );
 		e = e->next;
 	}
 	return 0;
@@ -431,12 +436,18 @@ int event_loop( int timeout )
 		tm.tv_nsec = tm.tv_sec = 0;
 		//tm.tv_usec = tm.tv_sec = 0;
 
-	printf("Entering select...");fflush(stdout);
+#ifndef NDEBUG
+	d_printf("Entering select...");
+	fflush(stdout);
+#endif
 	//sigprocmask(SIG_UNBLOCK, &event_handler_signals.event_signal_mask, NULL);
 	int rc = pselect( max_fd, &fds_read, &fds_write, &fds_exception, &tm, &sigmask );
 	//int rc = select( max_fd, &fds_read, &fds_write, &fds_exception, &tm );
 	sigprocmask(SIG_BLOCK, &event_handler_signals.event_signal_mask, NULL);
-	printf("done\n");fflush(stdout);
+#ifndef NDEBUG
+	d_printf("done\n");
+	fflush(stdout);
+#endif
 
 	if( rc < 0 ) {
 		d_printf("(p)select returned %d (errno = %d - %s)\n",rc, errno, strerror(errno));
@@ -481,23 +492,23 @@ ssize_t event_read( int fd, char *buffer, size_t len )
 	return rc;
 }
 
-int emit( context_t *ctx, event_t event, void *event_data )
+int emit( context_t *ctx, event_t event, driver_data_t *event_data )
 {
 	if( ctx->driver )
-		return ctx->driver->emit( ctx, event,event_data );
+		return ctx->driver->emit( ctx, event,event_data ? event_data : DRIVER_NONE );
 
 	return -1;
 }
 
-int emit_parent( context_t *ctx, event_t event, void *event_data )
+int emit_parent( context_t *ctx, event_t event, driver_data_t *event_data )
 {
 	if( ctx->parent )
-		return emit( ctx->parent, event | EH_CHILD , event_data );
+		return emit( ctx->parent, event | EH_CHILD, event_data );
 
 	return -1;
 }
 
-int emit_child( context_t *ctx, event_t event, void *event_data )
+int emit_child( context_t *ctx, event_t event, driver_data_t *event_data )
 {
 	if( ctx->child )
 		return emit( ctx->child, event | EH_PARENT, event_data );

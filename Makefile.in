@@ -2,6 +2,7 @@
 WARNINGS=-Wall -Wenum-compare -Wconversion -Werror -Warray-bounds
 FEATURES=-O0 -fshort-enums -fbounds-check
 DEBUG=-g
+#DEBUG=-DNDEBUG
 INCLUDES=-Isrc
 
 CFLAGS=$(DEBUG) $(INCLUDES) $(WARNINGS) $(FEATURES)

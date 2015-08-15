@@ -71,8 +71,6 @@ typedef struct context_s
 	struct context_s *next;
 } context_t;
 
-typedef int (*event_handler_t)(struct context_s *context, event_t event, void *event_data);
-
 #define MAX_CLASS_NAME  256
 #define MAX_READ_BUFFER 1024
 
@@ -93,12 +91,43 @@ typedef enum
 	EH_CHILD = 1024,
 } event_handler_flags_t;
 
+typedef enum {
+	TYPE_NONE,
+	TYPE_FD,
+	TYPE_CONSOLE,
+	TYPE_TICK,
+} data_type_t;
+
+typedef struct console_data_s {
+	size_t bytes;
+	char *data;
+} console_data_t;
+
 typedef struct fd_list_s
 {
 	int             fd;
 	event_handler_flags_t flags;
 	struct fd_list_s *next;
 } fd_list_t;
+
+typedef struct driver_data_s {
+	data_type_t type;
+	union {
+		time_t		   tick;
+		fd_list_t	   *fd_data;
+		console_data_t console_data;
+	};
+} driver_data_t;
+
+typedef struct driver_s
+{
+	const char     *name;
+	int             (*init) (context_t *);
+	int             (*shutdown) (context_t *);
+	int             (*emit) (context_t *context, event_t event, driver_data_t *event_data );
+} driver_t;
+
+typedef int (*event_handler_t)(struct context_s *context, event_t event, driver_data_t *event_data);
 
 typedef struct event_handler_list_s
 {
@@ -114,10 +143,6 @@ typedef struct event_handler_list_s
 extern event_handler_list_t *event_handler_list;
 
 extern void handle_signal_event( int sig_event );
-
-extern int emit( context_t *ctx, event_t event, void *event_data );
-extern int emit_parent( context_t *ctx, event_t event, void *event_data );
-extern int emit_child( context_t *ctx, event_t event, void *event_data );
 
 extern const event_handler_list_t *find_event_handler( const char *classname );
 extern event_handler_list_t *add_event_handler( const char *classname, context_t *context, event_handler_t handler, event_handler_flags_t flags );

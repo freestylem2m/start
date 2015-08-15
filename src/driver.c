@@ -46,6 +46,9 @@ context_t *context_list;
 
 const int driver_max = sizeof( driver_table ) / sizeof( *driver_table );
 
+// Dummy data
+driver_data_t driver_data_dummy = { TYPE_NONE, {} };
+
 #define ENV_MAX 64
 const char *get_env( context_t *ctx, const char *name )
 {
@@ -91,7 +94,7 @@ void context_check_health()
 
 	while( ctx && *ctx ) {
 		if( (*ctx)->flags & CTX_DEAD ) {
-			printf("Pruning dead context!!\n");
+			d_printf("Pruning dead context!!\n");
 
 			context_t *tail = (*ctx)->next;
 			if( (*ctx)->event )
@@ -123,6 +126,10 @@ context_t *context_create(const char *service_name, const config_t *service_conf
 	}
 
 	return ptr;
+}
+
+void context_terminate( context_t *ctx ) {
+	ctx->flags |= CTX_DEAD;
 }
 
 void set_child( context_t *ctx, context_t *child ) {

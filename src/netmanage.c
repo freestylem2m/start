@@ -79,7 +79,7 @@ void autostart_services()
 						d_printf("find_driver() returned %p\n", driver);
 						if (driver->init(ctx)) {
 							d_printf("emit(\"init\") to driver %s\n", driver_name);
-							emit( ctx, EVENT_INIT, NULL );
+							emit( ctx, EVENT_INIT, DRIVER_NONE );
 						} else
 							context_delete(ctx, NULL);
 					} else
