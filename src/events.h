@@ -79,9 +79,14 @@ typedef struct context_s
 	void           *data;
 	context_flags_t flags;
 	struct context_s *parent;
-	struct context_s *child;
-	struct context_s *next;
+	struct context_list_s *child;
 } context_t;
+
+typedef struct context_list_s
+{
+	context_t *context;
+	struct context_list_s *next;
+} context_list_t;
 
 #define MAX_CLASS_NAME  256
 #define MAX_READ_BUFFER 1024
@@ -147,6 +152,7 @@ typedef struct fd_list_s
 typedef struct driver_data_s
 {
 	data_type_t     type;
+	context_t		*source;				// message origin
 	union
 	{
 		time_t          event_tick;
@@ -170,7 +176,6 @@ typedef int     (*event_handler_t) (struct context_s * context, event_t event, d
 typedef struct event_handler_list_s
 {
 	const char     *name;
-	event_handler_t handler;
 	fd_list_t      *files;
 	context_t      *context;
 	struct event_handler_list_s *next;
@@ -183,8 +188,7 @@ extern event_handler_list_t *event_handler_list;
 extern void     handle_signal_event(int sig_event);
 
 extern const event_handler_list_t *find_event_handler(const char *classname);
-extern event_handler_list_t *add_event_handler(const char *classname, context_t * context, event_handler_t handler,
-											   event_handler_flags_t flags);
+extern event_handler_list_t *add_event_handler(const char *classname, context_t * context, event_handler_flags_t flags);
 extern event_handler_flags_t set_event_handler_flags(event_handler_list_t *, const event_handler_flags_t flags);
 extern event_handler_list_t *register_event_handler(const char *classname, context_t * context, event_handler_t handler,
 													event_handler_flags_t flags);

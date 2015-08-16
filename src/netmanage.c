@@ -30,6 +30,8 @@
 #include "cmdline.h"
 #include <stdio.h>
 #include <stdlib.h>
+#include <sys/types.h>
+#include <unistd.h>
 
 #include "config.h"
 #include "driver.h"
@@ -85,6 +87,7 @@ context_t *start_context( const char *name, context_t *parent, const char *servi
 				d_printf("Calling \"start_context\" with driver name %s\n",driver_name);
 				ctx = start_context( driver_name, parent, name, service );
 				d_printf("start_context( %s ) return %p\n",driver_name, ctx);
+				emit( ctx, EVENT_INIT, DRIVER_DATA_NONE );
 
 				if( ctx ) {
 					d_printf("Saving new driver as parent\n");
@@ -114,11 +117,8 @@ void autostart_services()
 
 		context_t *ctx = start_context( service_name, 0L, 0L, 0L );
 
-		if( ctx == 0L ) {
+		if( ctx == 0L )
 			d_printf("Failed to start service %s\n",service_name);
-		} else {
-			context_awaken( ctx );
-		}
 
 		auto_start++;
 	}

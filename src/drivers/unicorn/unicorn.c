@@ -136,8 +136,9 @@ int unicorn_emit(context_t *ctx, event_t event, driver_data_t * event_data)
 						read_buffer[result] = 0;
 						d_printf("Read event returned %ld bytes of data\n", bytes);
 
-						driver_data_t   temp_data = { TYPE_DATA, {.event_data.bytes = bytes,.event_data.data = read_buffer} };
+						driver_data_t   temp_data = { TYPE_DATA, .source = ctx, .event_data.bytes = bytes, .event_data.data = read_buffer };
 						cf->flags |= UNICORN_TERMINATING;
+
 						emit_child(ctx, EVENT_DATA_OUTGOING, &temp_data);
 
 						//ssize_t written = write(1,read_buffer,bytes);
@@ -148,7 +149,10 @@ int unicorn_emit(context_t *ctx, event_t event, driver_data_t * event_data)
 				} else {
 					d_printf("EOF on file descriptor (%d)\n", fd->fd);
 					event_delete(ctx->event, fd->fd, EH_NONE);
-					emit_child( ctx, EVENT_TERMINATE, DRIVER_DATA_NONE );
+					driver_data_t temp_data = *DRIVER_DATA_NONE;
+					temp_data.source = ctx;
+
+					emit_child(ctx, EVENT_TERMINATE, &temp_data);
 				}
 
 			}

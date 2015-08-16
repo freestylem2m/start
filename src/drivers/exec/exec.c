@@ -317,10 +317,14 @@ int exec_emit(context_t *ctx, event_t event, driver_data_t *event_data )
 						read_buffer[result] = 0;
 
 						driver_data_t in_data = { .type = TYPE_DATA,
+							.source = ctx,
 							.event_data.bytes = (size_t) result,
 							.event_data.data = read_buffer
 						};
-						return emit_child( ctx, EVENT_DATA_OUTGOING, &in_data );
+
+
+						emit_child( ctx, EVENT_DATA_OUTGOING, &in_data );
+						return 0;
 					} else
 						d_printf(" * WARNING: read return unexpected result %ld\n",result);
 				} else {

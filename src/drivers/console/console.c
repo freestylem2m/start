@@ -66,14 +66,15 @@ int console_shutdown(context_t *ctx)
 	return 1;
 }
 
-int console_emit(context_t *ctx, event_t event, driver_data_t * event_data)
+int console_emit(context_t *ctx, event_t event, driver_data_t *event_data)
 {
 	fd_list_t      *fd = 0;
 	event_data_t *data = 0L;
 
 	console_config_t *cf = (console_config_t *) ctx->data;
 
-	d_printf("event = \"%s\" (%d)\n *\n *\n", event_map[event], event);
+	printf("Got an event from %s\n",event_data->source?event_data->source->name:"nowhere");
+	printf("event = \"%s\" (%d)\n", event_map[event], event);
 	d_printf("event_data = %p\n", event_data);
 	d_printf("event_data->type = %s\n", driver_data_type_map[event_data->type]);
 
@@ -145,9 +146,9 @@ int console_emit(context_t *ctx, event_t event, driver_data_t * event_data)
 						read_buffer[result] = 0;
 						d_printf("Read event returned %ld bytes of data\n", bytes);
 
-						driver_data_t   temp_data = { TYPE_DATA, {.event_data.bytes = bytes,.event_data.data = read_buffer} };
+						driver_data_t   temp_data = { TYPE_DATA, .source = ctx, .event_data.bytes = bytes,.event_data.data = read_buffer };
 						//cf->flags |= CONSOLE_TERMINATING;
-						emit_child(ctx, EVENT_DATA_INCOMING, &temp_data);
+						emit_child( ctx, EVENT_DATA_INCOMING, &temp_data );
 
 						//ssize_t written = write(1,read_buffer,bytes);
 						//UNUSED(written);
@@ -157,7 +158,9 @@ int console_emit(context_t *ctx, event_t event, driver_data_t * event_data)
 				} else {
 					d_printf("EOF on file descriptor (%d)\n", fd->fd);
 					event_delete(ctx->event, fd->fd, EH_NONE);
-					emit_child( ctx, EVENT_TERMINATE, DRIVER_DATA_NONE );
+					driver_data_t temp_data = *DRIVER_DATA_NONE;
+					temp_data.source = ctx;
+					emit_child( ctx, EVENT_TERMINATE, &temp_data );
 				}
 
 			}

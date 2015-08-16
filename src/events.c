@@ -168,7 +168,7 @@ const event_handler_list_t *find_event_handler( const char *classname )
 	return e;
 }
 
-event_handler_list_t *add_event_handler( const char *classname, context_t *context, event_handler_t handler, event_handler_flags_t flags )
+event_handler_list_t *add_event_handler( const char *classname, context_t *context, event_handler_flags_t flags )
 {
 	event_handler_list_t **e = &event_handler_list;
 	int match = -1;
@@ -187,7 +187,6 @@ event_handler_list_t *add_event_handler( const char *classname, context_t *conte
 
 	(*e)->name = strdup( classname );
 	(*e)->context = context;
-	(*e)->handler = handler;
 	(*e)->flags = flags & (unsigned)~EH_DELETED;
 
 	return *e;
@@ -200,7 +199,7 @@ event_handler_list_t *register_event_handler( const char *classname, context_t *
 		return 0L;
 	}
 
-	return add_event_handler( classname, context, handler, flags );
+	return add_event_handler( classname, context, flags );
 
 }
 
@@ -399,7 +398,7 @@ int handle_pending_signals( void )
 			} else {
 				if( fdl->flags & EH_SIGNAL && sigismember( &temp_signals, fdl->fd ) ) {
 					driver_data_t data = { TYPE_SIGNAL, .event_signal = fdl->fd };
-					e->handler( e->context, EVENT_SIGNAL, &data );
+					e->context->driver->emit( e->context, EVENT_SIGNAL, &data );
 				}
 			}
 			fdl = fdl->next;
@@ -425,11 +424,11 @@ int handle_event_set( fd_set *readfds, fd_set *writefds, fd_set *exceptfds )
 			} else {
 				driver_data_t data = { TYPE_FD, .event_fd.fd = fdl->fd, .event_fd.flags = fdl->flags };
 				if( (fdl->flags & EH_EXCEPTION) &&  FD_ISSET( fdl->fd, exceptfds ) ) 
-					e->handler( e->context, EVENT_EXCEPTION, &data );
+					e->context->driver->emit( e->context, EVENT_EXCEPTION, &data );
 				if( (fdl->flags & EH_WRITE) &&  FD_ISSET( fdl->fd, writefds ) )
-					e->handler( e->context,  EVENT_WRITE, &data );
+					e->context->driver->emit( e->context,  EVENT_WRITE, &data );
 				if( (fdl->flags & EH_READ) &&  FD_ISSET( fdl->fd, readfds ) )
-					e->handler( e->context, EVENT_READ, &data );
+					e->context->driver->emit( e->context, EVENT_READ, &data );
 
 			}
 			fdl = fdl->next;
@@ -443,12 +442,12 @@ int handle_timer_events()
 {
 	event_handler_list_t *e = event_handler_list;
 
-	driver_data_t tick = { TYPE_TICK, { .event_tick = time(0L) } };
+	driver_data_t tick = { TYPE_TICK, .event_tick = time(0L) };
 
 	while( e ) {
 		if( ! (e->flags & EH_DELETED) )
 			if( e->flags & EH_WANT_TICK )
-				e->handler( e->context, EVENT_TICK, &tick );
+				e->context->driver->emit( e->context, EVENT_TICK, &tick );
 		e = e->next;
 	}
 	return 0;
@@ -529,28 +528,37 @@ ssize_t event_read( int fd, char *buffer, size_t len )
 
 int emit( context_t *ctx, event_t event, driver_data_t *event_data )
 {
-	if( ctx->driver )
+	if( ctx->driver ) {
+		if( !event_data->source )
+			event_data->source = ctx;
 		return ctx->driver->emit( ctx, event,event_data ? event_data : DRIVER_DATA_NONE );
+	}
 
 	return -1;
 }
 
 int emit_parent( context_t *ctx, event_t event, driver_data_t *event_data )
 {
-	if( ctx->parent )
+	if( ctx->parent ) {
+		if( !event_data->source )
+			event_data->source = ctx;
 		return emit( ctx->parent, event | EH_CHILD, event_data );
-	else
+	} else
 		d_printf(" ** WARNING:  emit_parent() called without a parent.\n");
 
 	return -1;
 }
 
-int emit_child( context_t *ctx, event_t event, driver_data_t *event_data )
+int emit_child( const context_t *ctx, const event_t event, driver_data_t *event_data )
 {
-	if( ctx->child )
-		return emit( ctx->child, event | EH_PARENT, event_data );
-	else
-		d_printf(" ** WARNING:  emit_child() called without a child.\n");
+	if( ctx->child ) {
+		context_list_t *lptr = ctx->child;
 
+		while( lptr ) {
+			if( (lptr->context->flags & CTX_DEAD) == 0)
+				emit( lptr->context, event, event_data );
+			lptr = lptr->next;
+		}
+	}
 	return -1;
 }
