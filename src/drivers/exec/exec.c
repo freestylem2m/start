@@ -55,10 +55,12 @@ int exec_init(context_t *context)
 	if ( 0 == (cf = (exec_config_t *) calloc( sizeof( exec_config_t ) , 1 )))
 		return 0;
 
-	context->data = cf;
+	cf->state = EXEC_STATE_IDLE;
 
 	if( config_istrue( context->config, "respawn" ) )
 		cf->flags |= EXEC_RESPAWN;
+
+	context->data = cf;
 
 	return 1;
 }
@@ -235,19 +237,22 @@ int exec_launch( const context_t *context )
 #define MAX_READ_BUFFER 1024
 int exec_emit(context_t *ctx, event_t event, driver_data_t *event_data )
 {
-	UNUSED(event_data);
+	fd_list_t *fd = 0L;
+	event_data_t *data = 0L;
 
-	fd_list_t *fd = 0;
 	exec_config_t *cf = (exec_config_t *) ctx->data;
 
+	d_printf("event = \"%s\" (%d)\n *\n *\n", event_map[event], event);
+
 	if( event_data->type == TYPE_FD )
-		fd = event_data->fd_data;
+		fd = & event_data->event_fd;
+	else if( event_data->type == TYPE_DATA )
+		data = & event_data->event_data;
 
 	switch( event ) {
 		case EVENT_INIT:
 			d_printf( "INIT event triggered\n");
 			{
-				//event_add( ctx->event, 0, EH_READ );
 				event_add( ctx->event, SIGQUIT, EH_SIGNAL );
 				event_add( ctx->event, SIGCHLD, EH_SIGNAL );
 
@@ -257,8 +262,37 @@ int exec_emit(context_t *ctx, event_t event, driver_data_t *event_data )
 					d_printf("exec() failed to start process\n");
 					cf->state = EXEC_STATE_ERROR;
 				}
-				return -1;
 			}
+			break;
+
+		case EVENT_TERMINATE:
+			d_printf("Got a termination event.  Cleaning up\n");
+			d_printf("child process will get EOF..\n");
+			// If there is no child process, don't wait for it to terminate
+			cf->termination_timestamp = time(0L);
+
+			if( cf->state == EXEC_STATE_RUNNING ) {
+				event_delete( ctx->event, cf->fd_out, EH_NONE );
+				close( cf->fd_out );
+				cf->flags |= EXEC_TERMINATING;
+			} else {
+				context_terminate( ctx );
+			}
+			break;
+
+		case EVENT_DATA_INCOMING:
+		case EVENT_DATA_OUTGOING:
+			if( data ) {
+				d_printf("Got a DATA event from my parent...\n");
+				d_printf("bytes = %ld\n",data->bytes );
+				d_printf("buffer = %s\n",data->data );
+				d_printf("buffer[%ld] = %d\n",data->bytes,data->data[data->bytes]);
+				if( write( cf->fd_out, data->data, data->bytes ) < 0)
+					d_printf("Failed to forward incoming data\n");
+			} else {
+				d_printf("Got a DATA event from my parent... WITHOUT ANY DATA!!!\n");
+			}
+
 			break;
 
 		case EVENT_READ:
@@ -271,18 +305,24 @@ int exec_emit(context_t *ctx, event_t event, driver_data_t *event_data )
 					d_printf("Read event for fd = %d (%ld bytes)\n",fd->fd, bytes);
 					char read_buffer[MAX_READ_BUFFER];
 
+					if( bytes >= MAX_READ_BUFFER ) {
+						bytes = MAX_READ_BUFFER-1;
+						d_printf("WARNING: Truncating read to %ld bytes\n",bytes);
+					}
+
 					ssize_t result = event_read( fd->fd, read_buffer, bytes);
 					d_printf("Read event returned %ld bytes of data\n",bytes);
 
 					if( result >= 0 ) {
-						ssize_t rc;
-						if( fd->fd == 0 )
-							rc = write(cf->fd_out,read_buffer,(size_t) result);
-						else
-							rc = write(1,read_buffer,(size_t) result);
-						if( rc != result )
-							printf("write returned %ld\n",rc);
-					}
+						read_buffer[result] = 0;
+
+						driver_data_t in_data = { .type = TYPE_DATA,
+							.event_data.bytes = (size_t) result,
+							.event_data.data = read_buffer
+						};
+						return emit_child( ctx, EVENT_DATA_OUTGOING, &in_data );
+					} else
+						d_printf(" * WARNING: read return unexpected result %ld\n",result);
 				} else {
 
 					d_printf("EOF on input. Cleaning up\n");
@@ -291,7 +331,8 @@ int exec_emit(context_t *ctx, event_t event, driver_data_t *event_data )
 					d_printf("event file descriptor (%d)\n",fd->fd);
 
 					if( fd->fd == cf->fd_in ) {
-						d_printf("\n *\n * child program has terminated\n *\n\n");
+						d_printf("\n *\n * child program has terminated\n *\n");
+						d_printf("Current state = %d\n",cf->state );
 
 						event_delete( ctx->event, cf->fd_in, EH_NONE );
 						close( cf->fd_in );
@@ -304,10 +345,10 @@ int exec_emit(context_t *ctx, event_t event, driver_data_t *event_data )
 						// 2) sigchld event causing the reaping of the child and disabling of further sigchild events.
 						if( cf->state == EXEC_STATE_STOPPING ) {
 							// program termination already signalled
-							if( (cf->flags & EXEC_RESPAWN) ) {
+							if( (cf->flags & (EXEC_RESPAWN|EXEC_TERMINATING)) == EXEC_RESPAWN ) {
 								d_printf("attempting to respawn\n");
 								cf->state = EXEC_STATE_IDLE;
-								return emit( ctx, EVENT_INIT, DRIVER_NONE );
+								return emit( ctx, EVENT_INIT, DRIVER_DATA_NONE );
 							} else {
 								d_printf("done here. cleaning up.\n");
 								context_terminate( ctx );
@@ -326,8 +367,8 @@ int exec_emit(context_t *ctx, event_t event, driver_data_t *event_data )
 			break;
 
 		case EVENT_SIGNAL:
-			d_printf("Woa! Got a sign from the gods... %d\n",fd->fd);
-			if( fd->fd == SIGCHLD ) {
+			d_printf("Woa! Got a sign from the gods... %d\n",event_data->event_signal);
+			if( event_data->event_signal == SIGCHLD ) {
 				d_printf("Reaping deceased child (expecting pid %d)\n",cf->pid);
 				int status;
 
@@ -340,9 +381,9 @@ int exec_emit(context_t *ctx, event_t event, driver_data_t *event_data )
 					if( cf->state == EXEC_STATE_STOPPING ) {
 						// program termination already signalled
 						d_printf(" ** now is a good time to die ** \n");
-						if( (cf->flags & EXEC_RESPAWN) ) {
+						if( (cf->flags & (EXEC_RESPAWN|EXEC_TERMINATING)) == EXEC_RESPAWN ) {
 							cf->state = EXEC_STATE_IDLE;
-							return emit( ctx, EVENT_INIT, DRIVER_NONE );
+							return emit( ctx, EVENT_INIT, DRIVER_DATA_NONE );
 						} else {
 							d_printf("done here. cleaning up.\n");
 							context_terminate( ctx );
@@ -361,11 +402,21 @@ int exec_emit(context_t *ctx, event_t event, driver_data_t *event_data )
 				strftime(buffer,64,"%T",localtime(&now));
 				d_printf("%s:   ** Tick (%ld seconds) **\n", buffer, cf->last_tick ? time(0L)-cf->last_tick : -1);
 				time( & cf->last_tick );
+				if( cf->flags & EXEC_TERMINATING ) {
+					d_printf("Been terminating for %ld seconds...\n",time(0L) - cf->termination_timestamp );
+					if(( time(0L) - cf->termination_timestamp ) > (PROCESS_TERMINATION_TIMEOUT*2) ) {
+						d_printf("REALLY Pushing it along with a SIGKILL\n");
+						kill( cf->pid, SIGKILL );
+					} else if(( time(0L) - cf->termination_timestamp ) > PROCESS_TERMINATION_TIMEOUT ) {
+						d_printf("Pushing it along with a SIGTERM\n");
+						kill( cf->pid, SIGTERM );
+					}
+				}
 			}
 			break;
 
 		default:
-			d_printf("Emitted some kind of event (%d)\n",event);
+			d_printf("\n *\n *\n * Emitted some kind of event \"%s\" (%d)\n *\n *\n", event_map[event], event);
 	}
 	return 0;
 }

@@ -34,7 +34,8 @@
 
 #include "config.h"
 
-typedef enum {
+typedef enum
+{
 	EVENT_NONE,
 	EVENT_INIT,
 	EVENT_READ,
@@ -42,13 +43,24 @@ typedef enum {
 	EVENT_EXCEPTION,
 	EVENT_SIGNAL,
 	EVENT_TICK,
-	EVENT_DATA,
+	EVENT_DATA_INCOMING,
+	EVENT_DATA_OUTGOING,
+	EVENT_TERMINATE,
+	EVENT_CHILD_ADDED,
+	EVENT_CHILD_REMOVED,
+	EVENT_PARENT_ADDED,
+	EVENT_PARENT_REMOVED,
 	EVENT_MAX
 } event_t;
 
-typedef enum {
-	CTX_NONE,
-	CTX_DEAD
+#ifndef NDEBUG
+extern char    *event_map[];
+#endif
+
+typedef enum
+{
+	CTX_NONE = 0,
+	CTX_DEAD = 1
 } context_flags_t;
 
 // A "context" is an instance of a driver, with instance configuration and instance data.
@@ -91,17 +103,39 @@ typedef enum
 	EH_CHILD = 1024,
 } event_handler_flags_t;
 
-typedef enum {
+typedef enum
+{
+	UNICORN_HEARTBEAT,
+	UNICORN_STATE_CHANGE,
+} unicorn_event_flags_t;
+
+typedef struct unicorn_data_s
+{
+	unicorn_event_flags_t flags;
+	unsigned int    state_data;	// state data is defined by (external) unicorn client
+} unicorn_data_t;
+
+typedef enum
+{
 	TYPE_NONE,
-	TYPE_FD,
-	TYPE_CONSOLE,
-	TYPE_TICK,
+	TYPE_FD,					// event_fd
+	TYPE_DATA,					// event_data
+	TYPE_SIGNAL,				// event_signal
+	TYPE_TICK,					// event_tick
+	// Driver specific data types, which breaks the driver model somewhat, but
+	// are infinitely cleaner than un-typed void pointers (aaargh!)
+	TYPE_UNICORN,				// event_unicorn
 } data_type_t;
 
-typedef struct console_data_s {
-	size_t bytes;
-	char *data;
-} console_data_t;
+#ifndef NDEBUG
+extern char    *driver_data_type_map[];
+#endif
+
+typedef struct event_data_s
+{
+	size_t          bytes;
+	char           *data;
+} event_data_t;
 
 typedef struct fd_list_s
 {
@@ -110,12 +144,16 @@ typedef struct fd_list_s
 	struct fd_list_s *next;
 } fd_list_t;
 
-typedef struct driver_data_s {
-	data_type_t type;
-	union {
-		time_t		   tick;
-		fd_list_t	   *fd_data;
-		console_data_t console_data;
+typedef struct driver_data_s
+{
+	data_type_t     type;
+	union
+	{
+		time_t          event_tick;
+		fd_list_t       event_fd;
+		event_data_t    event_data;
+		int             event_signal;
+		unicorn_data_t  event_unicorn;
 	};
 } driver_data_t;
 
@@ -124,17 +162,17 @@ typedef struct driver_s
 	const char     *name;
 	int             (*init) (context_t *);
 	int             (*shutdown) (context_t *);
-	int             (*emit) (context_t *context, event_t event, driver_data_t *event_data );
+	int             (*emit) (context_t * context, event_t event, driver_data_t *event_data);
 } driver_t;
 
-typedef int (*event_handler_t)(struct context_s *context, event_t event, driver_data_t *event_data);
+typedef int     (*event_handler_t) (struct context_s * context, event_t event, driver_data_t *event_data);
 
 typedef struct event_handler_list_s
 {
 	const char     *name;
 	event_handler_t handler;
-	fd_list_t		*files;
-	context_t *context;
+	fd_list_t      *files;
+	context_t      *context;
 	struct event_handler_list_s *next;
 	event_handler_flags_t flags;
 	char            deleted;
@@ -142,23 +180,25 @@ typedef struct event_handler_list_s
 
 extern event_handler_list_t *event_handler_list;
 
-extern void handle_signal_event( int sig_event );
+extern void     handle_signal_event(int sig_event);
 
-extern const event_handler_list_t *find_event_handler( const char *classname );
-extern event_handler_list_t *add_event_handler( const char *classname, context_t *context, event_handler_t handler, event_handler_flags_t flags );
-extern event_handler_flags_t set_event_handler_flags( event_handler_list_t *, const event_handler_flags_t flags );
-extern event_handler_list_t *register_event_handler( const char *classname, context_t *context, event_handler_t handler, event_handler_flags_t flags );
-extern void deregister_event_handler( event_handler_list_t *event );
-int event_loop( int timeout );
+extern const event_handler_list_t *find_event_handler(const char *classname);
+extern event_handler_list_t *add_event_handler(const char *classname, context_t * context, event_handler_t handler,
+											   event_handler_flags_t flags);
+extern event_handler_flags_t set_event_handler_flags(event_handler_list_t *, const event_handler_flags_t flags);
+extern event_handler_list_t *register_event_handler(const char *classname, context_t * context, event_handler_t handler,
+													event_handler_flags_t flags);
+extern void     deregister_event_handler(event_handler_list_t * event);
+int             event_loop(int timeout);
 
-extern fd_list_t *event_find( event_handler_list_t *handler_list, int fd );
-extern fd_list_t *event_set( event_handler_list_t *handler_list, int fd, event_handler_flags_t flags );
-extern fd_list_t *event_add( event_handler_list_t *handler_list, int fd, event_handler_flags_t flags );
-extern void event_delete( event_handler_list_t *handler_list, int fd, event_handler_flags_t flags );
-extern void event_prune( event_handler_list_t *handler_list );
+extern fd_list_t *event_find(event_handler_list_t * handler_list, int fd);
+extern fd_list_t *event_set(event_handler_list_t * handler_list, int fd, event_handler_flags_t flags);
+extern fd_list_t *event_add(event_handler_list_t * handler_list, int fd, event_handler_flags_t flags);
+extern void     event_delete(event_handler_list_t * handler_list, int fd, event_handler_flags_t flags);
+extern void     event_prune(event_handler_list_t * handler_list);
 
-extern int event_bytes( int fd, size_t *pbytes );
-extern ssize_t event_read( int fd, char *buffer, size_t len );
-extern int event_waitchld( int *status, int pid );
+extern int      event_bytes(int fd, size_t * pbytes);
+extern ssize_t  event_read(int fd, char *buffer, size_t len);
+extern int      event_waitchld(int *status, int pid);
 
 #endif

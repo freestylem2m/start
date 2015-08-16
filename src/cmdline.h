@@ -35,5 +35,6 @@ void dump_cmdline();
 
 extern char *config_file;
 extern int debug;
+extern int debug_quiet;
 
 #endif

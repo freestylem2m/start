@@ -41,6 +41,7 @@
 //
 char *config_file = (char *) "netmanage.conf";
 int  debug = 0;
+int  debug_quiet = 0;
 
 // ********************************************************************************
 // Command line parsing support...
@@ -119,6 +120,7 @@ typedef struct _cmdarg
 cmdarg args[] = {
 	{ "c|config",  A_STRING, ._vec.s_ptr = &config_file,"--config=file      Specify configuration file." },
 	{ "d|debug", A_FLAG,   ._vec.f_ptr = { 0, &debug }, "--debug            Enable verbose logging" },
+	{ "q|quiet", A_FLAG,   ._vec.f_ptr = { 0, &debug_quiet }, "--quiet            Silence logging" },
 	{ NULL,        A_FLAG,   ._vec = {} }
 };
 
@@ -128,16 +130,16 @@ cmdarg args[] = {
 // __fatal() dies noisily
 int __fatal(const char *func, int line, const char *fmt, ...)
 {
-	va_list args;
-	va_start( args, fmt );
+	va_list fmt_args;
+	va_start( fmt_args, fmt );
 	fprintf(stderr,"%s@%d: Fatal error: ",func,line);
 	if( fmt ) {
-		vfprintf(stderr,fmt,args);
+		vfprintf(stderr,fmt,fmt_args);
 		fprintf(stderr,"\n");
 	} else {
 		fprintf(stderr,"%s\n",strerror(errno));
 	}
-	va_end( args );
+	va_end( fmt_args );
 
 	exit(-1);
 }

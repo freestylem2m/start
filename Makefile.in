@@ -1,5 +1,5 @@
 
-WARNINGS=-Wall -Wenum-compare -Wconversion -Werror -Warray-bounds
+WARNINGS=-Wall -Wenum-compare -Wconversion -Werror -Warray-bounds -Wshadow
 FEATURES=-O0 -fshort-enums -fbounds-check
 DEBUG=-g
 #DEBUG=-DNDEBUG

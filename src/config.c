@@ -129,9 +129,12 @@ const char **add_config_item_list( config_entry_t *e, int linenr )
 		int qt = 0;
 		const char *p = e->value;
 
-		// Count how many ',' are present
-		while(( p = strchr(p,',')))
-			p++,n++;
+		// Count how many ','s or '|'s are present
+		while(*p) {
+			if( *p == ',' || *p == '|' )
+				n++;
+			p++;
+		}
 
 		// Allocate space for 'n' pointers, and the original string
 		char **list = (char **) malloc( (n+2)*sizeof(char *) + strlen(e->value)+1 );
@@ -164,7 +167,7 @@ const char **add_config_item_list( config_entry_t *e, int linenr )
 			} else
 				list[n++] = q;
 
-			while( *q && *q != ',' ) {
+			while( *q && *q != ',' && *q != '|' ) {
 				if( *q == ' ' ) {
 					if( !s )
 						s = q;

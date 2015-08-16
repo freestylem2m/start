@@ -50,6 +50,38 @@ event_handler_list_t *event_handler_list;
 // special secret squirrels..
 // Signal handler handles sigchld internally and stores the PID and status here.
 
+#ifndef NDEBUG
+char *event_map[] = {
+	"EVENT_NONE",
+	"EVENT_INIT",
+	"EVENT_READ",
+	"EVENT_WRITE",
+	"EVENT_EXCEPTION",
+	"EVENT_SIGNAL",
+	"EVENT_TICK",
+	"EVENT_DATA_INCOMING",
+	"EVENT_DATA_OUTGOING",
+	"EVENT_TERMINATE",
+	"EVENT_CHILD_ADDED",
+	"EVENT_CHILD_REMOVED",
+	"EVENT_PARENT_ADDED",
+	"EVENT_PARENT_REMOVED",
+	"EVENT_MAX",
+	0L
+};
+#endif
+
+#ifndef NDEBUG
+char *driver_data_type_map[] = {
+	"TYPE_NONE",
+	"TYPE_FD",
+	"TYPE_DATA",
+	"TYPE_SIGNAL",
+	"TYPE_TICK",
+	0L
+};
+#endif
+
 typedef struct event_child_list_s {
 	int pid;
 	int status;
@@ -164,7 +196,7 @@ event_handler_list_t *add_event_handler( const char *classname, context_t *conte
 event_handler_list_t *register_event_handler( const char *classname, context_t *context, event_handler_t handler, event_handler_flags_t flags)
 {
 	if( find_event_handler( classname ) ) {
-		fprintf(stderr,"WARNING: Event handler for class %s already exists",classname);
+		fprintf(stderr,"WARNING: Event handler for class %s already exists\n",classname);
 		return 0L;
 	}
 
@@ -298,6 +330,7 @@ int create_event_set( fd_set *readfds, fd_set *writefds, fd_set *exceptfds, int 
 
 	event_handler_list_t *e = event_handler_list;
 	while( e ) {
+		d_printf(" ** Adding registered events for %s\n",e->name );
 		fd_list_t *fdl = e->files;
 		while( fdl ) {
 			if( fdl->flags & EH_DELETED ) {
@@ -337,8 +370,10 @@ void handle_signal_event( int sig_event )
 
 	// Special case - sigchild is handled internally
 	if( sig_event == SIGCHLD ) {
+		d_printf("\n *\n * REAPING A CHILD PROCESS\n *\n");
 		int status, pid;
 		pid = waitpid(-1, &status, WNOHANG );
+		d_printf("Child PID = %d\n",pid);
 		if( pid > 0 )
 			child_list_add( status, pid );
 	}
@@ -363,7 +398,7 @@ int handle_pending_signals( void )
 				event_handler_signals.prune_pending ++;
 			} else {
 				if( fdl->flags & EH_SIGNAL && sigismember( &temp_signals, fdl->fd ) ) {
-					driver_data_t data = { TYPE_FD, .fd_data = fdl };
+					driver_data_t data = { TYPE_SIGNAL, .event_signal = fdl->fd };
 					e->handler( e->context, EVENT_SIGNAL, &data );
 				}
 			}
@@ -388,7 +423,7 @@ int handle_event_set( fd_set *readfds, fd_set *writefds, fd_set *exceptfds )
 			if( fdl->flags & EH_DELETED ) {
 				event_handler_signals.prune_pending ++;
 			} else {
-				driver_data_t data = { TYPE_FD, .fd_data = fdl };
+				driver_data_t data = { TYPE_FD, .event_fd.fd = fdl->fd, .event_fd.flags = fdl->flags };
 				if( (fdl->flags & EH_EXCEPTION) &&  FD_ISSET( fdl->fd, exceptfds ) ) 
 					e->handler( e->context, EVENT_EXCEPTION, &data );
 				if( (fdl->flags & EH_WRITE) &&  FD_ISSET( fdl->fd, writefds ) )
@@ -408,7 +443,7 @@ int handle_timer_events()
 {
 	event_handler_list_t *e = event_handler_list;
 
-	driver_data_t tick = { TYPE_TICK, { .tick = time(0L) } };
+	driver_data_t tick = { TYPE_TICK, { .event_tick = time(0L) } };
 
 	while( e ) {
 		if( ! (e->flags & EH_DELETED) )
@@ -495,7 +530,7 @@ ssize_t event_read( int fd, char *buffer, size_t len )
 int emit( context_t *ctx, event_t event, driver_data_t *event_data )
 {
 	if( ctx->driver )
-		return ctx->driver->emit( ctx, event,event_data ? event_data : DRIVER_NONE );
+		return ctx->driver->emit( ctx, event,event_data ? event_data : DRIVER_DATA_NONE );
 
 	return -1;
 }
@@ -504,6 +539,8 @@ int emit_parent( context_t *ctx, event_t event, driver_data_t *event_data )
 {
 	if( ctx->parent )
 		return emit( ctx->parent, event | EH_CHILD, event_data );
+	else
+		d_printf(" ** WARNING:  emit_parent() called without a parent.\n");
 
 	return -1;
 }
@@ -512,6 +549,8 @@ int emit_child( context_t *ctx, event_t event, driver_data_t *event_data )
 {
 	if( ctx->child )
 		return emit( ctx->child, event | EH_PARENT, event_data );
+	else
+		d_printf(" ** WARNING:  emit_child() called without a child.\n");
 
 	return -1;
 }

@@ -38,7 +38,7 @@
 
 extern driver_data_t driver_data_dummy;
 
-#define DRIVER_NONE (&driver_data_dummy)
+#define DRIVER_DATA_NONE (&driver_data_dummy)
 
 extern void set_child( context_t *ctx, context_t *child );
 extern void set_parent( context_t *ctx, context_t *parent );
@@ -48,6 +48,7 @@ extern const driver_t *find_driver(const char *);
 extern context_t *context_create(const char *service_name, const config_t *service_config, const driver_t *driver, const config_t *driver_config);
 extern void context_terminate( context_t *ctx );
 extern void context_delete(context_t *ctx, const char *name);
+extern void context_awaken(context_t *ctx);
 extern void context_check_health();
 extern context_t *find_context(const char *name);
 
