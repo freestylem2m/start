@@ -46,11 +46,6 @@ int console_init(context_t *ctx)
 {
 	d_printf("Hello from CONSOLE(%s) INIT!\n", ctx->name);
 
-	if (0 == (ctx->event = register_event_handler(ctx->name, ctx, console_emit, EH_WANT_TICK))) {
-		d_printf("register_event_handler() failed.\n");
-		return 0;
-	}
-
 	if (0 == (ctx->data = calloc(sizeof(console_config_t), 1))) {
 		d_printf("Creating local data failed\n");
 		return 0;
@@ -61,25 +56,28 @@ int console_init(context_t *ctx)
 
 int console_shutdown(context_t *ctx)
 {
-	(void)(ctx);
 	d_printf("Goodbye from CONSOLE INIT!\n");
-	return 1;
+
+	if( ctx->data )
+		free( ctx->data );
+
+	return 0;
 }
 
-int console_emit(context_t *ctx, event_t event, driver_data_t *event_data)
+int console_handler(context_t *ctx, event_t event, driver_data_t *event_data)
 {
-	fd_list_t      *fd = 0;
+	event_request_t *fd = 0;
 	event_data_t *data = 0L;
 
 	console_config_t *cf = (console_config_t *) ctx->data;
 
-	printf("Got an event from %s\n",event_data->source?event_data->source->name:"nowhere");
-	printf("event = \"%s\" (%d)\n", event_map[event], event);
+	d_printf("Got an event from %s\n",event_data->source?event_data->source->name:"nowhere");
+	d_printf("event = \"%s\" (%d)\n", event_map[event], event);
 	d_printf("event_data = %p\n", event_data);
 	d_printf("event_data->type = %s\n", driver_data_type_map[event_data->type]);
 
 	if (event_data && event_data->type == TYPE_FD)
-		fd = &event_data->event_fd;
+		fd = &event_data->event_request;
 	else if( event_data->type == TYPE_DATA )
 		data = & event_data->event_data;
 
@@ -93,8 +91,8 @@ int console_emit(context_t *ctx, event_t event, driver_data_t *event_data)
 			cf->fd_in = 0;
 			cf->fd_out = 1;
 
-			event_add(ctx->event, cf->fd_in, EH_DEFAULT);
-			event_add(ctx->event, SIGQUIT, EH_SIGNAL);
+			event_add(ctx, cf->fd_in, EH_DEFAULT);
+			event_add(ctx, SIGQUIT, EH_SIGNAL);
 			cf->state = CONSOLE_STATE_RUNNING;
 			break;
 
@@ -102,7 +100,7 @@ int console_emit(context_t *ctx, event_t event, driver_data_t *event_data)
 			d_printf("Got a termination event.  Cleaning up\n");
 			close( cf->fd_in );
 			cf->flags |= CONSOLE_TERMINATING ;
-			event_delete(ctx->event, cf->fd_in, EH_NONE);
+			event_delete(ctx, cf->fd_in, EH_NONE);
 			context_terminate(ctx);
 			break;
 
@@ -145,22 +143,13 @@ int console_emit(context_t *ctx, event_t event, driver_data_t *event_data)
 					if (result >= 0) {
 						read_buffer[result] = 0;
 						d_printf("Read event returned %ld bytes of data\n", bytes);
-
-						driver_data_t   temp_data = { TYPE_DATA, .source = ctx, .event_data.bytes = bytes,.event_data.data = read_buffer };
-						//cf->flags |= CONSOLE_TERMINATING;
-						emit_child( ctx, EVENT_DATA_INCOMING, &temp_data );
-
-						//ssize_t written = write(1,read_buffer,bytes);
-						//UNUSED(written);
 					} else {
 						d_printf("read() returned %ld (%s)\n", result, strerror(errno));
 					}
 				} else {
 					d_printf("EOF on file descriptor (%d)\n", fd->fd);
-					event_delete(ctx->event, fd->fd, EH_NONE);
-					driver_data_t temp_data = *DRIVER_DATA_NONE;
-					temp_data.source = ctx;
-					emit_child( ctx, EVENT_TERMINATE, &temp_data );
+					event_delete(ctx, fd->fd, EH_NONE);
+					context_terminate(ctx);
 				}
 
 			}

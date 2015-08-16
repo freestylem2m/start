@@ -34,5 +34,5 @@ typedef struct exec_config_t {
 
 extern int exec_init(context_t *);
 extern int exec_shutdown(context_t *);
-extern int exec_emit(context_t *, event_t event, driver_data_t *event_data);
+extern int exec_handler(context_t *, event_t event, driver_data_t *event_data);
 #endif

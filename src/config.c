@@ -98,9 +98,7 @@ int config_istrue(const config_t * section, const char *item)
 
 const char *config_item( const char *section, const char *item )
 {
-	const config_t *s = config_get_section( section );
-
-	return config_get_item( s, item );
+	return config_get_item( config_get_section( section ) , item );
 }
 
 const char **config_get_itemlist( const config_t *section, const char *item )
@@ -216,6 +214,8 @@ config_entry_t *add_config_entry( config_t *section, const char *item, const cha
 	config_entry_t **e = &section->config;
 	int match = -1;
 
+	//printf("Adding config entry %s->%s = %s\n",section->section, item, value );
+
 	while( (*e) && ((match = strncasecmp( (*e)->item, item, LINE_MAX ))) < 0 )
 		e = &(*e)->next;
 
@@ -246,13 +246,6 @@ void config_dump()
 		config_entry_t *e = p->config;
 		while(e) {
 			d_printf("%s=%s\n",e->item,e->value);
-#if 0
-			const char **l = e->list;
-			while(l && *l) {
-				d_printf("-- %s\n",*l);
-				l++;
-			}
-#endif
 			e = e->next;
 		}
 		p = p->next;

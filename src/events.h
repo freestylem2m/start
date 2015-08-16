@@ -34,6 +34,16 @@
 
 #include "config.h"
 
+
+// Maximum number of services/drivers loaded
+#define MAX_CONTEXTS 32
+#define MAX_EVENT_REQUESTS 32
+#define MAX_SIGCHLD 32
+#define MAX_SERVICE_NAME 32
+
+#define MAX_CLASS_NAME  256
+#define MAX_READ_BUFFER 1024
+
 typedef enum
 {
 	EVENT_NONE,
@@ -46,10 +56,6 @@ typedef enum
 	EVENT_DATA_INCOMING,
 	EVENT_DATA_OUTGOING,
 	EVENT_TERMINATE,
-	EVENT_CHILD_ADDED,
-	EVENT_CHILD_REMOVED,
-	EVENT_PARENT_ADDED,
-	EVENT_PARENT_REMOVED,
 	EVENT_MAX
 } event_t;
 
@@ -59,40 +65,36 @@ extern char    *event_map[];
 
 typedef enum
 {
-	CTX_NONE = 0,
-	CTX_DEAD = 1
+	CTX_UNUSED,
+	CTX_STARTING,
+	CTX_RUNNING,
+	CTX_TERMINATING
 } context_flags_t;
 
 // A "context" is an instance of a driver, with instance configuration and instance data.
 // The "name" is often the same as the name of the "config" stanza.
-
-// The parent/child context allows chain control channels between drivers (eg, udp port -> protocol handler -> process )
 typedef struct context_s
 {
-	const char     *name;
-	const config_t *config;
+	char            name[MAX_SERVICE_NAME];
 
-	// Driver used to implement this service
+	// driver -> driver jump table, used when starting/stopping the driver and sending messages
+	//
+	// config, driver_config -> stanza(s) in ini file,
+	//			used by get_env() to retrieve service and driver configs
+	//
+	// owner -> driver or service who owns this.
+	const config_t *config;
 	const struct driver_s *driver;
 	const config_t *driver_config;
-	struct event_handler_list_s *event;
+	const struct context_s *owner;
+
 	void           *data;
 	context_flags_t flags;
-	struct context_s *parent;
-	struct context_list_s *child;
 } context_t;
-
-typedef struct context_list_s
-{
-	context_t *context;
-	struct context_list_s *next;
-} context_list_t;
-
-#define MAX_CLASS_NAME  256
-#define MAX_READ_BUFFER 1024
 
 typedef enum
 {
+	EH_UNUSED = 0,
 	EH_NONE = 0,
 	EH_READ = 1,
 	EH_WRITE = 2,
@@ -103,9 +105,6 @@ typedef enum
 	EH_SIGNAL = 8,
 	EH_SPECIAL = (EH_SIGNAL),
 	EH_WANT_TICK = 128,
-	EH_DELETED = 256,
-	EH_PARENT = 512,
-	EH_CHILD = 1024,
 } event_handler_flags_t;
 
 typedef enum
@@ -142,64 +141,60 @@ typedef struct event_data_s
 	char           *data;
 } event_data_t;
 
-typedef struct fd_list_s
+typedef struct event_request_s
 {
+	// Owner of the event
+	context_t      *ctx;
+
+	// File descriptor or Signal (depending on flags)
 	int             fd;
 	event_handler_flags_t flags;
 	struct fd_list_s *next;
-} fd_list_t;
+} event_request_t;
 
 typedef struct driver_data_s
 {
 	data_type_t     type;
-	context_t		*source;				// message origin
+	context_t      *source;		// message origin
 	union
 	{
 		time_t          event_tick;
-		fd_list_t       event_fd;
+		event_request_t event_request;
 		event_data_t    event_data;
 		int             event_signal;
 		unicorn_data_t  event_unicorn;
 	};
 } driver_data_t;
 
+typedef enum
+{
+	MODULE_DRIVER,
+	MODULE_SERVICE
+} driver_type_t;
+
 typedef struct driver_s
 {
 	const char     *name;
+	driver_type_t   type;
 	int             (*init) (context_t *);
 	int             (*shutdown) (context_t *);
-	int             (*emit) (context_t * context, event_t event, driver_data_t *event_data);
+	int             (*emit) (context_t * context, event_t event, driver_data_t * event_data);
 } driver_t;
 
-typedef int     (*event_handler_t) (struct context_s * context, event_t event, driver_data_t *event_data);
-
-typedef struct event_handler_list_s
-{
-	const char     *name;
-	fd_list_t      *files;
-	context_t      *context;
-	struct event_handler_list_s *next;
-	event_handler_flags_t flags;
-	char            deleted;
-} event_handler_list_t;
-
-extern event_handler_list_t *event_handler_list;
+typedef int     (*event_handler_t) (struct context_s * context, event_t event, driver_data_t * event_data);
 
 extern void     handle_signal_event(int sig_event);
 
-extern const event_handler_list_t *find_event_handler(const char *classname);
-extern event_handler_list_t *add_event_handler(const char *classname, context_t * context, event_handler_flags_t flags);
-extern event_handler_flags_t set_event_handler_flags(event_handler_list_t *, const event_handler_flags_t flags);
-extern event_handler_list_t *register_event_handler(const char *classname, context_t * context, event_handler_t handler,
-													event_handler_flags_t flags);
-extern void     deregister_event_handler(event_handler_list_t * event);
 int             event_loop(int timeout);
 
-extern fd_list_t *event_find(event_handler_list_t * handler_list, int fd);
-extern fd_list_t *event_set(event_handler_list_t * handler_list, int fd, event_handler_flags_t flags);
-extern fd_list_t *event_add(event_handler_list_t * handler_list, int fd, event_handler_flags_t flags);
-extern void     event_delete(event_handler_list_t * handler_list, int fd, event_handler_flags_t flags);
-extern void     event_prune(event_handler_list_t * handler_list);
+extern context_t context_table[MAX_CONTEXTS];
+extern event_request_t event_table[MAX_EVENT_REQUESTS];
+
+extern int      event_subsystem_init(void);
+extern event_request_t *event_find(const context_t * ctx, int fd, event_handler_flags_t flags);
+extern event_request_t *event_set(const context_t * ctx, int fd, event_handler_flags_t flags);
+extern event_request_t *event_add(context_t * ctx, const int fd, event_handler_flags_t flags);
+extern void     event_delete(context_t * ctx, int fd, event_handler_flags_t flags);
 
 extern int      event_bytes(int fd, size_t * pbytes);
 extern ssize_t  event_read(int fd, char *buffer, size_t len);

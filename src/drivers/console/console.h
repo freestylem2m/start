@@ -30,5 +30,5 @@ typedef struct console_config_t {
 
 extern int console_init(context_t *);
 extern int console_shutdown(context_t *);
-extern int console_emit(context_t *, event_t event, driver_data_t *event_data);
+extern int console_handler(context_t *, event_t event, driver_data_t *event_data);
 #endif

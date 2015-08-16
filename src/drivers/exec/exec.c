@@ -49,8 +49,6 @@ int exec_init(context_t *context)
 	// register "emit" as the event handler of choice
 	
 	exec_config_t *cf;
-	if ( 0 == (context->event = register_event_handler( context->name, context, exec_emit, EH_WANT_TICK )))
-		return 0;
 
 	if ( 0 == (cf = (exec_config_t *) calloc( sizeof( exec_config_t ) , 1 )))
 		return 0;
@@ -65,10 +63,10 @@ int exec_init(context_t *context)
 	return 1;
 }
 
-int exec_shutdown( context_t *context)
+int exec_shutdown(context_t *context)
 {
 	(void)(context);
-	d_printf("Goodbye from EXEC INIT!\n");
+	d_printf("Goodbye from EXEC!\n");
 	return 1;
 }
 
@@ -157,7 +155,7 @@ char *process_command( char *cmd, char *exe, char **vec )
 	return 0;
 }
 
-int exec_launch( const context_t *context )
+int exec_launch( context_t *context )
 {
 	char exe[PATH_MAX];
 	char *vec[CMD_ARGS_MAX];
@@ -205,8 +203,8 @@ int exec_launch( const context_t *context )
 		close( fd_out[FD_READ] );
 		cf->fd_out = fd_out[FD_WRITE];
 
-		event_add( context->event, cf->fd_in, EH_READ );
-		event_add( context->event, cf->fd_out, EH_EXCEPTION );
+		event_add( context, cf->fd_in, EH_READ );
+		event_add( context, cf->fd_out, EH_EXCEPTION );
 
 		free( cmd );
 	} else {
@@ -235,9 +233,9 @@ int exec_launch( const context_t *context )
 }
 
 #define MAX_READ_BUFFER 1024
-int exec_emit(context_t *ctx, event_t event, driver_data_t *event_data )
+int exec_handler(context_t *ctx, event_t event, driver_data_t *event_data )
 {
-	fd_list_t *fd = 0L;
+	event_request_t *fd = 0L;
 	event_data_t *data = 0L;
 
 	exec_config_t *cf = (exec_config_t *) ctx->data;
@@ -245,7 +243,7 @@ int exec_emit(context_t *ctx, event_t event, driver_data_t *event_data )
 	d_printf("event = \"%s\" (%d)\n *\n *\n", event_map[event], event);
 
 	if( event_data->type == TYPE_FD )
-		fd = & event_data->event_fd;
+		fd = & event_data->event_request;
 	else if( event_data->type == TYPE_DATA )
 		data = & event_data->event_data;
 
@@ -253,8 +251,8 @@ int exec_emit(context_t *ctx, event_t event, driver_data_t *event_data )
 		case EVENT_INIT:
 			d_printf( "INIT event triggered\n");
 			{
-				event_add( ctx->event, SIGQUIT, EH_SIGNAL );
-				event_add( ctx->event, SIGCHLD, EH_SIGNAL );
+				event_add( ctx, SIGQUIT, EH_SIGNAL );
+				event_add( ctx, SIGCHLD, EH_SIGNAL );
 
 				if( ! exec_launch( ctx ) ) {
 					cf->state = EXEC_STATE_RUNNING;
@@ -272,7 +270,7 @@ int exec_emit(context_t *ctx, event_t event, driver_data_t *event_data )
 			cf->termination_timestamp = time(0L);
 
 			if( cf->state == EXEC_STATE_RUNNING ) {
-				event_delete( ctx->event, cf->fd_out, EH_NONE );
+				event_delete( ctx, cf->fd_out, EH_NONE );
 				close( cf->fd_out );
 				cf->flags |= EXEC_TERMINATING;
 			} else {
@@ -315,16 +313,6 @@ int exec_emit(context_t *ctx, event_t event, driver_data_t *event_data )
 
 					if( result >= 0 ) {
 						read_buffer[result] = 0;
-
-						driver_data_t in_data = { .type = TYPE_DATA,
-							.source = ctx,
-							.event_data.bytes = (size_t) result,
-							.event_data.data = read_buffer
-						};
-
-
-						emit_child( ctx, EVENT_DATA_OUTGOING, &in_data );
-						return 0;
 					} else
 						d_printf(" * WARNING: read return unexpected result %ld\n",result);
 				} else {
@@ -338,10 +326,10 @@ int exec_emit(context_t *ctx, event_t event, driver_data_t *event_data )
 						d_printf("\n *\n * child program has terminated\n *\n");
 						d_printf("Current state = %d\n",cf->state );
 
-						event_delete( ctx->event, cf->fd_in, EH_NONE );
+						event_delete( ctx, cf->fd_in, EH_NONE );
 						close( cf->fd_in );
 
-						event_delete( ctx->event, cf->fd_out, EH_NONE );
+						event_delete( ctx, cf->fd_out, EH_NONE );
 						close( cf->fd_out );
 
 						// Complete termination is a two step process.

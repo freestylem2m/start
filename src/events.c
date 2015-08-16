@@ -45,8 +45,6 @@
 #include "events.h"
 #include "driver.h"
 
-event_handler_list_t *event_handler_list;
-
 // special secret squirrels..
 // Signal handler handles sigchld internally and stores the PID and status here.
 
@@ -85,275 +83,166 @@ char *driver_data_type_map[] = {
 typedef struct event_child_list_s {
 	int pid;
 	int status;
-	struct event_child_list_s *next;
-} event_child_list_t;
+} event_child_t;
 
 typedef struct event_signals_s {
 	sigset_t event_signal_mask;
 	sigset_t event_signal_pending;
+	sigset_t event_signal_default;
+
 	int      event_signal_pending_count;
-	event_child_list_t *child_list;
-	int      prune_pending;
+    int      event_child_last;
+	event_child_t child_events[MAX_SIGCHLD];
 } event_signals_t;
 
-event_signals_t event_handler_signals;
+event_signals_t event_signals;
 
-void child_list_add( int status, int pid )
-{
-	event_child_list_t **child = & event_handler_signals.child_list;
-
-	event_child_list_t *new = (event_child_list_t *) calloc( sizeof(event_child_list_t), 1 );
-
-	new->status = status;
-	new->pid = pid;
-	new->next = *child;
-	*child = new;
-}
-
-#if 0
-void child_list_delete( int pid )
-{
-	event_child_list_t **child = & event_handler_signals.child_list;
-
-	while( *child && (*child)->pid != pid )
-		child = & (*child)->next;
-
-	if( *child && (*child)->pid == pid ) {
-		event_child_list_t *tail = (*child)->next;
-		free( *child );
-		*child = tail;
-	}
-}
-#endif
+context_t        context_table[MAX_CONTEXTS];
+event_request_t  event_table[MAX_EVENT_REQUESTS];
 
 int event_waitchld( int *status, int pid )
 {
-	event_child_list_t **child = &event_handler_signals.child_list;
-	int             _pid;
+	event_child_t *child = event_signals.child_events;
+	int i;
 
 	if (pid > 0) {
-		while (*child && (*child)->pid != pid)
-			child = &(*child)->next;
+		int _pid;
+		for( i = 0; i < MAX_SIGCHLD; i++ )
+			if( child[i].pid == pid ) {
+				*status = child[i].status;
+				_pid = child[i].pid;
+				child[i].pid = -1;
 
-		if (*child) {
-			*status = (*child)->status;
-			_pid = (*child)->pid;
-			event_child_list_t *tail = (*child)->next;
-			free((void *)*child);
-			*child = tail;
-
-			return _pid;
+				return _pid;
+			}
+	} else {
+		for( i = 0; i < MAX_SIGCHLD; i++ ) {
+			if( child[i].pid > 0 ) {
+				*status = child[i].status;
+				return child[i].pid;
+			}
 		}
 	}
-
-	if (*child) {
-		*status = (*child)->status;
-		return (*child)->pid;
-	} else
-		return -1;
+	return -1;
 }
 
-
-const event_handler_list_t *find_event_handler( const char *classname )
+int event_subsystem_init(void)
 {
-	event_handler_list_t *e = event_handler_list;
-	int match = -1;
+	sigset_t nothing;
+	sigemptyset( &nothing );
 
-	while( e && ((match = strncasecmp( classname, e->name, MAX_CLASS_NAME ) )) < 0 )
-		e = e->next;
-
-	if( match )
-		return 0L;
-
-	return e;
+	// Calling SIG_BLOCK with an empty mask does nothing, but returns the current signal mask.
+	sigprocmask( SIG_BLOCK, &nothing, &event_signals.event_signal_default );
+	return 0;
 }
 
-event_handler_list_t *add_event_handler( const char *classname, context_t *context, event_handler_flags_t flags )
-{
-	event_handler_list_t **e = &event_handler_list;
-	int match = -1;
-
-	while( (*e) && ((match = strncasecmp( classname, (*e)->name, MAX_CLASS_NAME ) )) < 0 )
-		e = &(*e)->next;
-
-	if( match ) {
-		event_handler_list_t *n = (event_handler_list_t *) calloc( 1, sizeof( event_handler_list_t ) );
-		n->next = *e;
-		*e = n;
-	}
-
-	if( (*e)->name )
-		free( (void *) (*e)->name );
-
-	(*e)->name = strdup( classname );
-	(*e)->context = context;
-	(*e)->flags = flags & (unsigned)~EH_DELETED;
-
-	return *e;
-}
-
-event_handler_list_t *register_event_handler( const char *classname, context_t *context, event_handler_t handler, event_handler_flags_t flags)
-{
-	if( find_event_handler( classname ) ) {
-		fprintf(stderr,"WARNING: Event handler for class %s already exists\n",classname);
-		return 0L;
-	}
-
-	return add_event_handler( classname, context, flags );
-
-}
-
-void deregister_event_handler( event_handler_list_t *event )
-{
-	event_handler_list_t **e = &event_handler_list;
-
-	while( e && *e && (*e != event ))
-		e = &(*e)->next;
-
-	if( e && *e && ( *e == event )) {
-		event_handler_list_t *tail = (*e)->next;
-		fd_list_t *l = (*e)->files;
-		while( l ) {
-			l->flags |= EH_DELETED;
-			l=l->next;
-		}
-		event_prune( *e );
-		free( (void *) (*e)->name );
-		free( (void *) *e );
-		*e = tail;
-	}
-
-}
-
-fd_list_t *find_event_entry( const event_handler_list_t *handler_list, const int fd, event_handler_flags_t flags )
+event_request_t *event_find( const context_t *ctx, const int fd, const event_handler_flags_t flags )
 {
 	unsigned int event_type = flags & EH_SPECIAL;
 
-	fd_list_t *l = handler_list->files;
-
-	while(l) {
-		if( !( event_type ^ ( l->flags & EH_SPECIAL ) ) )
-			if( l->fd == fd )
-				return l;
-
-		l = l->next;
+	int i;
+	for( i = 0; i < MAX_EVENT_REQUESTS; i ++ ) {
+		if (event_table[i].ctx == ctx)
+			if( !( event_type ^ ( event_table[i].flags & EH_SPECIAL ) ) )
+				if( event_table[i].fd == fd )
+					return &event_table[i];
 	}
 
 	return 0L;
 }
 
-fd_list_t *event_set( event_handler_list_t *handler_list, int fd, event_handler_flags_t flags )
+event_request_t *event_find_free_slot( void )
 {
-	fd_list_t *entry = find_event_entry( handler_list, fd, flags );
+    int i;
+    for( i = 0; i < MAX_EVENT_REQUESTS; i ++ )
+        if( event_table[i].flags == EH_UNUSED )
+            return &event_table[i];
 
-	if( entry ) {
-		entry->flags = flags;
-	}
+    return 0L;
+}
+
+event_request_t *event_set( const context_t *ctx, const int fd, const event_handler_flags_t flags )
+{
+	event_request_t *entry = event_find( ctx, fd, flags );
+
+    // Reset flags, but make sure the special bits dont accidentally change.
+	if( entry )
+		entry->flags = (entry->flags & EH_SPECIAL) | ( flags & ~(unsigned int)EH_SPECIAL );
+
 	return entry;
 }
 
-fd_list_t *event_add( event_handler_list_t *handler_list, int fd, event_handler_flags_t flags )
+event_request_t *event_add( context_t *ctx, const int fd, event_handler_flags_t flags )
 {
-	fd_list_t *entry = find_event_entry( handler_list, fd, flags );
+	event_request_t *entry = event_find( ctx,  fd, flags );
 
-	if( !entry ) {
-		entry = calloc( sizeof( fd_list_t ), 1 );
+	if( !entry )
+		entry = event_find_free_slot();
 
-		if( ! entry )
-			return 0L;
+    if( ! entry )
+        return 0L;
 
-		entry->next = handler_list->files;
-		handler_list->files = entry;
-	}
-
-	fcntl(fd, F_SETFL, fcntl(fd, F_GETFL) | O_NONBLOCK);
 	entry->fd = fd;
-	entry->flags = flags & (unsigned) ~EH_DELETED;
+	entry->flags = flags;
+	entry->ctx = ctx;
 
 	if( flags & EH_SIGNAL ) {
-		if( ! sigismember( &event_handler_signals.event_signal_mask, fd ) ) {
+		if( ! sigismember( &event_signals.event_signal_mask, fd ) ) {
 			struct sigaction action_handler;
 			memset( &action_handler, 0, sizeof( action_handler ) );
 			action_handler.sa_handler = handle_signal_event;
-			action_handler.sa_flags = 0;
-			//action_handler.sa_flags = SA_RESTART;
+			action_handler.sa_flags = 0; // SA_RESTART;
 			sigaction( fd, &action_handler, NULL );
-			sigaddset( &event_handler_signals.event_signal_mask, fd );
+			sigaddset( &event_signals.event_signal_mask, fd );
+			sigdelset( &event_signals.event_signal_default, fd );
 		}
-	}
+	} else 
+        if( (flags & (EH_READ|EH_WRITE)) && ! ( flags & EH_SPECIAL ) )
+            fcntl(fd, F_SETFL, fcntl(fd, F_GETFL) | O_NONBLOCK);
 
 	return entry;
 }
 
-void event_delete( event_handler_list_t *handler_list, int fd, event_handler_flags_t flags )
+void event_delete( context_t *ctx, int fd, event_handler_flags_t flags )
 {
-	fd_list_t *entry = find_event_entry( handler_list, fd, flags );
+	event_request_t *entry = event_find( ctx, fd, flags );
+
 	if( entry ) {
-		entry->flags |= EH_DELETED;
+		entry->flags = EH_UNUSED;
 		entry->fd = -1;
-		event_handler_signals.prune_pending ++;
-	}
-}
-
-void event_prune( event_handler_list_t *handler_list )
-{
-	fd_list_t **entry = & handler_list->files;
-
-	while( entry && *entry ) {
-		if( (*entry)->flags & EH_DELETED ) {
-			fd_list_t *tail = (*entry)->next;
-			free( (void *) *entry );
-			*entry = tail;
-		}
-		else
-			entry = & (*entry)->next;
 	}
 }
 
 int create_event_set( fd_set *readfds, fd_set *writefds, fd_set *exceptfds, int *max )
 {
 	int count = 0;
+	int i;
+
+	*max = 0;
 
 	FD_ZERO( readfds );
 	FD_ZERO( writefds );
 	FD_ZERO( exceptfds );
-	*max = 0;
 
-	if( event_handler_signals.prune_pending ) {
-		event_handler_list_t *e = event_handler_list;
-		while( e ) {
-			event_prune( e );
-			e = e->next;
-		}
-	}
+	for( i = 0; i < MAX_EVENT_REQUESTS; i++ )
+	{
+		if( event_table[i].flags ) {
+			d_printf(" ** Adding registered events for %s\n",event_table[i].ctx->name );
 
-	event_handler_list_t *e = event_handler_list;
-	while( e ) {
-		if( (e->context->flags & CTX_DEAD ) == 0 ) {
-			d_printf(" ** Adding registered events for %s\n",e->name );
-			fd_list_t *fdl = e->files;
-			while( fdl ) {
-				if( fdl->flags & EH_DELETED ) {
-					event_handler_signals.prune_pending ++;
-				} else {
-					if( fdl->flags & EH_READ )
-						FD_SET(fdl->fd, readfds), count ++;
-					if( fdl->flags & EH_WRITE )
-						FD_SET(fdl->fd, writefds), count ++;
-					if( fdl->flags & EH_EXCEPTION )
-						FD_SET(fdl->fd, exceptfds), count ++;
-					if( fdl->flags & EH_SIGNAL )
-						count ++;
-
-					if( fdl->fd >= *max )
-						*max = fdl->fd+1;
-				}
-				fdl = fdl->next;
+			if( event_table[i].flags & EH_SPECIAL ) {
+				if( event_table[i].flags & EH_SIGNAL )
+					count ++;
+			} else {
+				if( event_table[i].flags & EH_READ )
+					FD_SET(event_table[i].fd, readfds), count ++;
+				if( event_table[i].flags & EH_WRITE )
+					FD_SET(event_table[i].fd, writefds), count ++;
+				if( event_table[i].flags & EH_EXCEPTION )
+					FD_SET(event_table[i].fd, exceptfds), count ++;
+				if( event_table[i].fd >= *max )
+					*max = event_table[i].fd+1;
 			}
-		} else {
-			d_printf(" ** Skipping registered events for dead context %s\n",e->name );
 		}
-		e = e->next;
 	}
 
 	return count;
@@ -368,18 +257,28 @@ void handle_signal_event( int sig_event )
 {
 	d_printf(" - SIGNAL SIG%s(%d)\n",sigmap[sig_event],sig_event);
 
-	sigaddset( &event_handler_signals.event_signal_pending, sig_event );
-	event_handler_signals.event_signal_pending_count ++;
+	sigaddset( &event_signals.event_signal_pending, sig_event );
+	event_signals.event_signal_pending_count ++;
 
 	// Special case - sigchild is handled internally
 	if( sig_event == SIGCHLD ) {
 		d_printf("\n *\n * REAPING A CHILD PROCESS\n *\n");
 		int status, pid;
 		pid = waitpid(-1, &status, WNOHANG );
-		d_printf("Child PID = %d\n",pid);
-		if( pid > 0 )
-			child_list_add( status, pid );
+		if( pid > 0 ) {
+			d_printf("Child PID = %d\n",pid);
+			int i; 
+			for( i = 0; i < MAX_SIGCHLD; i++ )
+				if( event_signals.child_events[i].pid <= 0 ) {
+					event_signals.child_events[i].pid = pid;
+					event_signals.child_events[i].status = status;
+					return;
+				}
+		} else
+			d_printf("Hang on... SIGCHLD with no CHILD!! (maybe because of %s)\n", strerror(errno));
 	}
+
+	return;
 }
 
 int handle_pending_signals( void )
@@ -387,29 +286,17 @@ int handle_pending_signals( void )
 	//
 	// Note, signals are normally blocked while doing this when called from event_loop()
 	//
-	sigset_t temp_signals = event_handler_signals.event_signal_pending;
+	sigset_t temp_signals = event_signals.event_signal_pending;
 
-	sigemptyset( &event_handler_signals.event_signal_pending );
-	event_handler_signals.event_signal_pending_count = 0;
+	sigemptyset( &event_signals.event_signal_pending );
+	event_signals.event_signal_pending_count = 0;
 
-	event_handler_list_t *e = event_handler_list;
-
-	while( e ) {
-		if( (e->context->flags & CTX_DEAD ) == 0 ) {
-			fd_list_t *fdl = e->files;
-			while( fdl ) {
-				if( fdl->flags & EH_DELETED ) {
-					event_handler_signals.prune_pending ++;
-				} else {
-					if( fdl->flags & EH_SIGNAL && sigismember( &temp_signals, fdl->fd ) ) {
-						driver_data_t data = { TYPE_SIGNAL, .event_signal = fdl->fd };
-						e->context->driver->emit( e->context, EVENT_SIGNAL, &data );
-					}
-				}
-				fdl = fdl->next;
-			}
+	int i;
+	for( i = 0; i < MAX_EVENT_REQUESTS; i ++ ) {
+		if( ( event_table[i].flags & EH_SIGNAL ) == EH_SIGNAL && sigismember( &temp_signals, event_table[i].fd )) {
+			driver_data_t data = { TYPE_SIGNAL, .event_signal = event_table[i].fd };
+			event_table[i].ctx->driver->emit( event_table[i].ctx, EVENT_SIGNAL, &data );
 		}
-		e = e->next;
 	}
 
 	return 0;
@@ -417,48 +304,32 @@ int handle_pending_signals( void )
 
 int handle_event_set( fd_set *readfds, fd_set *writefds, fd_set *exceptfds )
 {
-	//
-	// Make the following signal mask handover atomic by blocking signals
-	//
-	event_handler_list_t *e = event_handler_list;
-	e = event_handler_list;
-	while( e ) {
-		if( (e->context->flags & CTX_DEAD ) == 0 ) {
-			fd_list_t *fdl = e->files;
-			while( fdl ) {
-				if( fdl->flags & EH_DELETED ) {
-					event_handler_signals.prune_pending ++;
-				} else {
-					driver_data_t data = { TYPE_FD, .event_fd.fd = fdl->fd, .event_fd.flags = fdl->flags };
-					if( (fdl->flags & EH_EXCEPTION) &&  FD_ISSET( fdl->fd, exceptfds ) ) 
-						e->context->driver->emit( e->context, EVENT_EXCEPTION, &data );
-					if( (fdl->flags & EH_WRITE) &&  FD_ISSET( fdl->fd, writefds ) )
-						e->context->driver->emit( e->context,  EVENT_WRITE, &data );
-					if( (fdl->flags & EH_READ) &&  FD_ISSET( fdl->fd, readfds ) )
-						e->context->driver->emit( e->context, EVENT_READ, &data );
-
-				}
-				fdl = fdl->next;
-			}
+	int i;
+	for( i = 0; i < MAX_EVENT_REQUESTS; i++ ) {
+		if( event_table[i].flags && ((event_table[i].flags & EH_SPECIAL) == 0 )) {
+			driver_data_t data = { TYPE_FD, .event_request.fd = event_table[i].fd, .event_request.flags = event_table[i].flags };
+			if( (event_table[i].flags & EH_EXCEPTION) &&  FD_ISSET( event_table[i].fd, exceptfds ) ) 
+				event_table[i].ctx->driver->emit( event_table[i].ctx, EVENT_EXCEPTION, &data );
+			if( (event_table[i].flags & EH_WRITE) &&  FD_ISSET( event_table[i].fd, writefds ) )
+				event_table[i].ctx->driver->emit( event_table[i].ctx,  EVENT_WRITE, &data );
+			if( (event_table[i].flags & EH_READ) &&  FD_ISSET( event_table[i].fd, readfds ) )
+				event_table[i].ctx->driver->emit( event_table[i].ctx, EVENT_READ, &data );
 		}
-		e = e->next;
 	}
 	return 0;
 }
 
 int handle_timer_events()
 {
-	event_handler_list_t *e = event_handler_list;
+	int i;
 
 	driver_data_t tick = { TYPE_TICK, .event_tick = time(0L) };
 
-	while( e ) {
-		if( ! (e->flags & EH_DELETED) )
-			if( e->flags & EH_WANT_TICK )
-				if( (e->context->flags & CTX_DEAD ) == 0 )
-					e->context->driver->emit( e->context, EVENT_TICK, &tick );
-		e = e->next;
-	}
+	// All drivers get the same 'tick' timestamp, even if some drivers take time to process the tick
+	for(i = 0; i < MAX_EVENT_REQUESTS; i++ )
+		if( ((event_table[i].flags & EH_WANT_TICK) == EH_WANT_TICK) && ((event_table[i].flags & EH_SPECIAL) == 0 )) {
+			event_table[i].ctx->driver->emit( event_table[i].ctx, EVENT_TICK, &tick );
+		}
 	return 0;
 }
 
@@ -466,31 +337,18 @@ int event_loop( int timeout )
 {
 	fd_set fds_read, fds_write, fds_exception;
 	struct timespec tm = { timeout / 1000, (timeout % 1000) * 1000 };
-	//struct timeval tm = { timeout / 1000, (timeout % 1000) };
-	sigset_t sigmask;
-	sigemptyset( &sigmask );
-
 	int max_fd = 0;
+
 	if( ! create_event_set( &fds_read, &fds_write, &fds_exception, &max_fd ) )
 		return -1;
 
 	// If I know there are signals which need processing, reset the select timeout to 0
-	if( event_handler_signals.event_signal_pending_count )
+	// Signals are normally blocked, so these would be manufactured events.
+	if( event_signals.event_signal_pending_count )
 		tm.tv_nsec = tm.tv_sec = 0;
-		//tm.tv_usec = tm.tv_sec = 0;
 
-#ifndef NDEBUG
-	d_printf("Entering select...");
-	fflush(stdout);
-#endif
-	//sigprocmask(SIG_UNBLOCK, &event_handler_signals.event_signal_mask, NULL);
-	int rc = pselect( max_fd, &fds_read, &fds_write, &fds_exception, &tm, &sigmask );
-	//int rc = select( max_fd, &fds_read, &fds_write, &fds_exception, &tm );
-	sigprocmask(SIG_BLOCK, &event_handler_signals.event_signal_mask, NULL);
-#ifndef NDEBUG
-	d_printf("done\n");
-	fflush(stdout);
-#endif
+	int rc = pselect( max_fd, &fds_read, &fds_write, &fds_exception, &tm, &event_signals.event_signal_default );
+	sigprocmask(SIG_BLOCK, &event_signals.event_signal_mask, NULL);
 
 	if( rc < 0 ) {
 		d_printf("(p)select returned %d (errno = %d - %s)\n",rc, errno, strerror(errno));
@@ -500,7 +358,7 @@ int event_loop( int timeout )
 			return 0;
 	}
 
-	if( event_handler_signals.event_signal_pending_count )
+	if( event_signals.event_signal_pending_count )
 		handle_pending_signals();
 
 	rc = handle_event_set( &fds_read, &fds_write, &fds_exception );
@@ -540,30 +398,5 @@ int emit( context_t *ctx, event_t event, driver_data_t *event_data )
 	if( ctx->driver )
 		return ctx->driver->emit( ctx, event,event_data ? event_data : DRIVER_DATA_NONE );
 
-	return -1;
-}
-
-int emit_parent( context_t *ctx, event_t event, driver_data_t *event_data )
-{
-	if( ctx->parent )
-		return emit( ctx->parent, event | EH_CHILD, event_data );
-	else
-		d_printf(" ** WARNING:  emit_parent() called without a parent.\n");
-
-	return -1;
-}
-
-int emit_child( const context_t *ctx, const event_t event, driver_data_t *event_data )
-{
-	if( ctx->child ) {
-		context_list_t *lptr = ctx->child;
-
-		while( lptr ) {
-			if( (lptr->context->flags & CTX_DEAD) == 0)
-				emit( lptr->context, event, event_data );
-			lptr = lptr->next;
-		}
-	} else
-		d_printf(" ** WARNING:  emit_child() called without a child.\n");
 	return -1;
 }

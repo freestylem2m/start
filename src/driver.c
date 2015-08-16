@@ -44,8 +44,6 @@ const driver_t driver_table[] = {
 #include "driver_setup.h"
 };
 
-context_list_t *context_list;
-
 const int driver_max = sizeof( driver_table ) / sizeof( *driver_table );
 
 // Dummy data
@@ -89,159 +87,70 @@ const driver_t *find_driver( const char *driver )
 	return 0L;
 }
 
-void context_check_health()
+context_t *context_find_entry( const char *name )
 {
-	d_printf("Checking context health\n");
-	context_list_t **cl = & context_list;
-	context_t *ctx;
+	int i;
+	
+	for( i = 0; i < MAX_CONTEXTS; i++ )
+		if( (context_table[i].flags != CTX_UNUSED) && (!strcasecmp(context_table[i].name, name))) {
+			return &context_table[i];
+		}
 
-	while( cl && *cl ) {
-		ctx = (*cl)->context;
-		if( ctx->flags & CTX_DEAD ) {
-			d_printf("Pruning dead context (%s)!!\n", ctx->name);
+	return 0L;
+}
 
-			// deal with parent relationships
-			// deal with child relationships
-			context_list_t *_cl = context_list;
+context_t *context_find_free_slot( void )
+{
+    int i;
 
-			while( _cl ) {
-				context_t *_c = _cl->context;
+    for( i = 0; i < MAX_CONTEXTS; i++ )
+        if( context_table[i].flags == CTX_UNUSED )
+            return &context_table[i];
 
-			//kill(getpid(),11);
-				if( _c->child ) {
-					context_list_t **_child_list = & ( _c->child );
-					while (*_child_list) {
-						if( (*_child_list)->context == ctx /* || ((*_child_list)->context->flags & CTX_DEAD) */ ) {
-							context_list_t *tail = (*_child_list)->next;
-							free( (void *) *_child_list );
-							*_child_list = tail;
-						} else
-							_child_list = & ( *_child_list )->next;
-					}
-				
-					emit(_c, EVENT_CHILD_REMOVED, DRIVER_DATA_NONE );
-				}
-
-				if( _c->parent == ctx ) {
-					emit(_c, EVENT_PARENT_REMOVED, DRIVER_DATA_NONE );
-					_c->parent = 0;
-				}
-
-				_cl = _cl->next;
-			}
-			
-			context_list_t *tail = (*cl)->next;
-			if( ctx->event )
-				deregister_event_handler( ctx->event );
-
-			if( ctx->data )
-				free( ctx->data );
-			free( (void *) ctx->name );
-
-			while( ctx->child ) {
-				context_list_t *next = ctx->child->next;
-				free( ctx->child );
-				ctx->child = next;
-			}
-			free( ctx );
-			free( *cl );
-
-			*cl = tail;
-		} else
-			cl = & (*cl)->next;
-	}
+    return 0L;
 }
 
 context_t *context_create(const char *service_name, const config_t *service_config, const driver_t *driver, const config_t *driver_config)
 {
-	context_t *ptr = calloc( sizeof(context_t), 1);
-	context_list_t *lptr;
-	
+    context_t *ptr = context_find_free_slot();
+
 	if( ! ptr )
 		return 0L;
 	
-	lptr = calloc( sizeof(context_list_t), 1);
-
-	if( !lptr ) {
-		free( ptr );
-		return 0L;
-	}
-	
-	ptr->name = strdup( service_name );
+	strncpy( ptr->name, service_name, MAX_SERVICE_NAME );
 	ptr->config = service_config;
 	ptr->driver = driver;
 	ptr->driver_config = driver_config;
-	ptr->flags = 0;
-
-	lptr->context = ptr;
-	lptr->next = context_list;
-	context_list = lptr;
+	ptr->flags = CTX_STARTING;
 
 	return ptr;
 }
 
 void context_terminate( context_t *ctx ) {
 	d_printf("context_terminate(%s) called\n",ctx->name);
-	ctx->flags |= CTX_DEAD;
-	// To prevent deadlock, dont notify any children if they
-	// are already dead. (but un-reaped)
-	driver_data_t temp_data = *DRIVER_DATA_NONE;
-	temp_data.source = ctx;
 
-	emit_child( ctx, EVENT_TERMINATE, &temp_data );
-}
-
-void set_child( context_t *ctx, context_t *child ) {
-	d_printf("set_child( parent = %s, child = %s )\n",ctx->name, child->name);
-	context_list_t *cll = calloc( sizeof(context_list_t), 1);
-	if( cll ) {
-		cll->context = child;
-		cll->next = ctx->child;
-		ctx->child = cll;
+	int i;
+	for( i = 0; i < MAX_EVENT_REQUESTS; i++ ) {
+		if (event_table[i].ctx == ctx)
+			event_table[i].flags = EH_UNUSED;
 	}
-	emit( ctx, EVENT_CHILD_ADDED, DRIVER_DATA_NONE );
-}
 
-void set_parent( context_t *ctx, context_t *parent ) {
-	d_printf("set_parent( parent = %s, child = %s )\n",parent->name, ctx->name);
-	ctx->parent = parent;
-	emit( ctx, EVENT_PARENT_ADDED, DRIVER_DATA_NONE );
+	if( ctx->driver )
+		ctx->driver->shutdown( ctx );
+
+	ctx->flags |= CTX_TERMINATING;
 }
 
 void context_delete(context_t *ctx, const char *name)
 {
-	context_list_t **lptr = &context_list;
+	if( name )
+		ctx  = context_find_entry( name );
 
-	if( ctx ) {
-		while( *lptr && (*lptr)->context != ctx )
-			lptr = &((*lptr)->next);
-	} else
-		if( name ) {
-			while( *lptr && strcasecmp( (*lptr)->context->name, name ) )
-				lptr = &((*lptr)->next);
-		}
-
-	if( lptr && *lptr ) {
-		context_list_t *tail = (*lptr)->next;
-		context_list_t *cll = (*lptr)->context->child;
-		while( cll ) {
-			context_list_t *next = cll->next;
-			free( (void *) cll );
-			cll = next;
-		}
-		free( (void *) (*lptr)->context->name);
-		free( (void *) (*lptr)->context);
-		free( (void *) *lptr);
-		*lptr = tail;
-	}
+	if( ctx )
+		ctx->flags = CTX_UNUSED;
 }
 
 context_t *find_context(const char *name)
 {
-	context_list_t *lptr = context_list;
-
-	while( lptr && strcasecmp( lptr->context->name, name ))
-		lptr = lptr->next;
-
-	return lptr->context;
+	return context_find_entry( name );
 }

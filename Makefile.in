@@ -1,5 +1,5 @@
 
-WARNINGS=-Wall -Wenum-compare -Wconversion -Werror -Warray-bounds -Wshadow
+WARNINGS=-Wall -Wenum-compare -Wconversion -Werror -Warray-bounds -Wshadow -Wunused-parameter
 FEATURES=-O0 -fshort-enums -fbounds-check
 DEBUG=-g
 #DEBUG=-DNDEBUG
@@ -19,7 +19,7 @@ DRIVER_OBJECTS=$(DRIVER_SOURCE:.c=.o)
 
 # Override default '.w.c:' build rule to TEXT..
 .w.c:
-	@echo
+	@true
 
 netmanage: .depend $(MANAGER_OBJECTS) $(DRIVER_OBJECTS)
 	$(CC) $(LDFLAGS) -o $@ $(MANAGER_OBJECTS) $(DRIVER_OBJECTS)

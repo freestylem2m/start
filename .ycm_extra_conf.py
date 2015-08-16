@@ -12,9 +12,10 @@ flags = [
 '-fexceptions',
 '-DDEBUG',
 '-DUSE_CLANG_COMPLETER',
-'-std=c99'
+'-std=c99',
+'-DNOHVC',
 '-x',
-'c++',
+'c',
 '-I',
 '.',
 '-I',

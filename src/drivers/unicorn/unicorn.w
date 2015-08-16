@@ -1,7 +1,8 @@
 
 {
 	"unicorn",
+	MODULE_DRIVER,
 	unicorn_init,
 	unicorn_shutdown,
-	unicorn_emit,
+	unicorn_handler,
 },
