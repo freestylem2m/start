@@ -127,11 +127,10 @@ void autostart_services()
 void run()
 {
 	// Initial health check to clean up drivers which failed to start
-	context_check_health();
 
 	while (!event_loop(10000)) {
-		context_check_health();
 	}
+	context_check_health();
 
 	d_printf("I'm outa here!\n");
 }
