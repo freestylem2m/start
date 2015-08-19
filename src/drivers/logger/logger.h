@@ -7,7 +7,7 @@
 #define FD_READ 0
 #define FD_WRITE 1
 
-#define PROCESS_TERMINATION_TIMEOUT 10
+#define LOG_BUFFER_MAX 1024
 
 typedef enum {
 	LOGGER_STATE_IDLE,
@@ -25,13 +25,13 @@ typedef enum {
 typedef struct logger_config_t {
 	logger_state_t state;
 	logger_flags_t flags;
-	int fd_in;
-	int fd_out;
 	time_t last_tick;
 	context_t *logger;
+	int    log_fd;
 } logger_config_t;
 
 extern int logger_init(context_t *);
 extern int logger_shutdown(context_t *);
-extern int logger_handler(context_t *, event_t event, driver_data_t *event_data);
+extern ssize_t logger_handler(context_t *, event_t event, driver_data_t *event_data);
+extern void logger(context_t *ctx, context_t *source, char *fmt, ...);
 #endif

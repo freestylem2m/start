@@ -64,7 +64,7 @@ int console_shutdown(context_t *ctx)
 	return 0;
 }
 
-int console_handler(context_t *ctx, event_t event, driver_data_t *event_data)
+ssize_t console_handler(context_t *ctx, event_t event, driver_data_t *event_data)
 {
 	event_request_t *fd = 0;
 	event_data_t *data = 0L;
@@ -108,9 +108,9 @@ int console_handler(context_t *ctx, event_t event, driver_data_t *event_data)
 		case EVENT_DATA_OUTGOING:
 			if( data ) {
 				d_printf("Got a DATA event from my parent...\n");
-				d_printf("bytes = %ld\n",data->bytes );
-				d_printf("buffer = %s\n",data->data );
-				d_printf("buffer[%ld] = %d\n",data->bytes,data->data[data->bytes]);
+				d_printf("bytes = %d\n",data->bytes );
+				d_printf("buffer = %s\n", (char *)data->data );
+				d_printf("buffer[%d] = %d\n",data->bytes,((char *)data->data)[data->bytes]);
 				if( write( cf->fd_out, data->data, data->bytes ) < 0 )
 					d_printf("Failed to forward incoming data\n");
 			} else {
@@ -127,24 +127,24 @@ int console_handler(context_t *ctx, event_t event, driver_data_t *event_data)
 #ifdef NDEBUG
 				UNUSED(rc);
 #endif
-				d_printf("event_bytes returned %d (%ld bytes)\n", rc, bytes);
+				d_printf("event_bytes returned %d (%d bytes)\n", rc, bytes);
 				if (bytes) {
-					d_printf("Read event for fd = %d (%ld bytes)\n", fd->fd, bytes);
+					d_printf("Read event for fd = %d (%d bytes)\n", fd->fd, bytes);
 
 					char            read_buffer[MAX_READ_BUFFER];
 
 					if( bytes >= MAX_READ_BUFFER ) {
 						bytes = MAX_READ_BUFFER-1;
-						d_printf("WARNING: Truncating read to %ld bytes\n",bytes);
+						d_printf("WARNING: Truncating read to %d bytes\n",bytes);
 					}
 
 					ssize_t         result = event_read(fd->fd, read_buffer, bytes);
 
 					if (result >= 0) {
 						read_buffer[result] = 0;
-						d_printf("Read event returned %ld bytes of data\n", bytes);
+						d_printf("Read event returned %d bytes of data\n", bytes);
 					} else {
-						d_printf("read() returned %ld (%s)\n", result, strerror(errno));
+						d_printf("read() returned %d (%s)\n", result, strerror(errno));
 					}
 				} else {
 					d_printf("EOF on file descriptor (%d)\n", fd->fd);

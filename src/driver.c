@@ -126,7 +126,7 @@ context_t *context_create(const char *service_name, const config_t *service_conf
 	return ptr;
 }
 
-void context_terminate( context_t *ctx ) {
+int context_terminate( context_t *ctx ) {
 	d_printf("context_terminate(%s) called\n",ctx->name);
 
 	int i;
@@ -139,6 +139,7 @@ void context_terminate( context_t *ctx ) {
 		ctx->driver->shutdown( ctx );
 
 	ctx->flags |= CTX_TERMINATING;
+	return 0;
 }
 
 void context_delete(context_t *ctx, const char *name)

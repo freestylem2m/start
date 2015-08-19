@@ -17,9 +17,8 @@ typedef enum {
 } coordinator_state_t;
 
 typedef enum {
-	COORDINATOR_NONE,
-	COORDINATOR_RESPAWN = 1,
-	COORDINATOR_TERMINATING = 2,
+	COORDINATOR_NONE        = 0,
+	COORDINATOR_TERMINATING = 1,
 } coordinator_flags_t;
 
 typedef struct coordinator_config_t {
@@ -27,9 +26,13 @@ typedef struct coordinator_config_t {
 	coordinator_flags_t flags;
 	time_t last_tick;
 	time_t termination_timestamp;
+    context_t *logger;
+    context_t *unicorn;
+    context_t *interface;
+    context_t *vpn;
 } coordinator_config_t;
 
 extern int coordinator_init(context_t *);
 extern int coordinator_shutdown(context_t *);
-extern int coordinator_handler(context_t *, event_t event, driver_data_t *event_data);
+extern ssize_t coordinator_handler(context_t *, event_t event, driver_data_t *event_data);
 #endif

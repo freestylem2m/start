@@ -34,6 +34,10 @@
 
 #include "config.h"
 
+#if _POSIX_C_SOURCE >= 200112L
+#define USE_PSELECT
+#endif
+
 
 // Maximum number of services/drivers loaded
 #define MAX_CONTEXTS 32
@@ -56,6 +60,8 @@ typedef enum
 	EVENT_DATA_INCOMING,
 	EVENT_DATA_OUTGOING,
 	EVENT_TERMINATE,
+	EVENT_CHILD,
+	EVENT_RESTARTING,
 	EVENT_MAX
 } event_t;
 
@@ -86,7 +92,8 @@ typedef struct context_s
 	const config_t *config;
 	const struct driver_s *driver;
 	const config_t *driver_config;
-	const struct context_s *owner;
+
+	struct context_s *owner;
 
 	void           *data;
 	context_flags_t flags;
@@ -126,19 +133,27 @@ typedef enum
 	TYPE_DATA,					// event_data
 	TYPE_SIGNAL,				// event_signal
 	TYPE_TICK,					// event_tick
+	TYPE_CHILD,                 // event_child
 	// Driver specific data types, which breaks the driver model somewhat, but
 	// are infinitely cleaner than un-typed void pointers (aaargh!)
 	TYPE_UNICORN,				// event_unicorn
+	TYPE_CUSTOM					// custom data
 } data_type_t;
 
 #ifndef NDEBUG
 extern char    *driver_data_type_map[];
 #endif
 
+typedef struct event_child_s
+{
+	context_t *ctx;
+	int status;
+} event_child_t;
+
 typedef struct event_data_s
 {
 	size_t          bytes;
-	char           *data;
+	void           *data;
 } event_data_t;
 
 typedef struct event_request_s
@@ -163,6 +178,8 @@ typedef struct driver_data_s
 		event_data_t    event_data;
 		int             event_signal;
 		unicorn_data_t  event_unicorn;
+		event_child_t   event_child;
+		void  *         event_custom;
 	};
 } driver_data_t;
 
@@ -172,16 +189,18 @@ typedef enum
 	MODULE_SERVICE
 } driver_type_t;
 
+typedef int (*event_callback_t) (context_t *);
+typedef ssize_t     (*event_handler_t) (struct context_s * context, event_t event, driver_data_t * event_data);
+
 typedef struct driver_s
 {
 	const char     *name;
 	driver_type_t   type;
-	int             (*init) (context_t *);
-	int             (*shutdown) (context_t *);
-	int             (*emit) (context_t * context, event_t event, driver_data_t * event_data);
+	event_callback_t init;
+	event_callback_t shutdown;
+	event_handler_t emit;
 } driver_t;
 
-typedef int     (*event_handler_t) (struct context_s * context, event_t event, driver_data_t * event_data);
 
 extern void     handle_signal_event(int sig_event);
 
@@ -191,7 +210,7 @@ extern context_t context_table[MAX_CONTEXTS];
 extern event_request_t event_table[MAX_EVENT_REQUESTS];
 
 extern int      event_subsystem_init(void);
-extern event_request_t *event_find(const context_t * ctx, int fd, event_handler_flags_t flags);
+extern event_request_t *event_find(const context_t * ctx, int fd, const event_handler_flags_t flags);
 extern event_request_t *event_set(const context_t * ctx, int fd, event_handler_flags_t flags);
 extern event_request_t *event_add(context_t * ctx, const int fd, event_handler_flags_t flags);
 extern void     event_delete(context_t * ctx, int fd, event_handler_flags_t flags);

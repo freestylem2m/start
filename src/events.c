@@ -60,10 +60,7 @@ char *event_map[] = {
 	"EVENT_DATA_INCOMING",
 	"EVENT_DATA_OUTGOING",
 	"EVENT_TERMINATE",
-	"EVENT_CHILD_ADDED",
-	"EVENT_CHILD_REMOVED",
-	"EVENT_PARENT_ADDED",
-	"EVENT_PARENT_REMOVED",
+	"EVENT_CHILD",
 	"EVENT_MAX",
 	0L
 };
@@ -83,7 +80,7 @@ char *driver_data_type_map[] = {
 typedef struct event_child_list_s {
 	int pid;
 	int status;
-} event_child_t;
+} signal_child_t;
 
 typedef struct event_signals_s {
 	sigset_t event_signal_mask;
@@ -92,7 +89,7 @@ typedef struct event_signals_s {
 
 	int      event_signal_pending_count;
     int      event_child_last;
-	event_child_t child_events[MAX_SIGCHLD];
+	signal_child_t child_events[MAX_SIGCHLD];
 } event_signals_t;
 
 event_signals_t event_signals;
@@ -102,7 +99,7 @@ event_request_t  event_table[MAX_EVENT_REQUESTS];
 
 int event_waitchld( int *status, int pid )
 {
-	event_child_t *child = event_signals.child_events;
+	signal_child_t *child = event_signals.child_events;
 	int i;
 
 	if (pid > 0) {
@@ -133,6 +130,10 @@ int event_subsystem_init(void)
 
 	// Calling SIG_BLOCK with an empty mask does nothing, but returns the current signal mask.
 	sigprocmask( SIG_BLOCK, &nothing, &event_signals.event_signal_default );
+
+    // Start a private process group
+    setpgid(0,0);
+
 	return 0;
 }
 
@@ -227,7 +228,7 @@ int create_event_set( fd_set *readfds, fd_set *writefds, fd_set *exceptfds, int 
 	for( i = 0; i < MAX_EVENT_REQUESTS; i++ )
 	{
 		if( event_table[i].flags ) {
-			d_printf(" ** Adding registered events for %s\n",event_table[i].ctx->name );
+			//d_printf(" ** Adding registered events for %s\n",event_table[i].ctx->name );
 
 			if( event_table[i].flags & EH_SPECIAL ) {
 				if( event_table[i].flags & EH_SIGNAL )
@@ -262,7 +263,7 @@ void handle_signal_event( int sig_event )
 
 	// Special case - sigchild is handled internally
 	if( sig_event == SIGCHLD ) {
-		d_printf("\n *\n * REAPING A CHILD PROCESS\n *\n");
+		//d_printf("\n *\n * REAPING A CHILD PROCESS\n *\n");
 		int status, pid;
 		pid = waitpid(-1, &status, WNOHANG );
 		if( pid > 0 ) {
@@ -294,7 +295,9 @@ int handle_pending_signals( void )
 	int i;
 	for( i = 0; i < MAX_EVENT_REQUESTS; i ++ ) {
 		if( ( event_table[i].flags & EH_SIGNAL ) == EH_SIGNAL && sigismember( &temp_signals, event_table[i].fd )) {
-			driver_data_t data = { TYPE_SIGNAL, .event_signal = event_table[i].fd };
+			driver_data_t data = { TYPE_SIGNAL, 0L, {} };
+			data.event_signal = event_table[i].fd;
+			fprintf(stderr," Sending signal %d to driver %s\n", event_table[i].fd, event_table[i].ctx->name );
 			event_table[i].ctx->driver->emit( event_table[i].ctx, EVENT_SIGNAL, &data );
 		}
 	}
@@ -307,7 +310,9 @@ int handle_event_set( fd_set *readfds, fd_set *writefds, fd_set *exceptfds )
 	int i;
 	for( i = 0; i < MAX_EVENT_REQUESTS; i++ ) {
 		if( event_table[i].flags && ((event_table[i].flags & EH_SPECIAL) == 0 )) {
-			driver_data_t data = { TYPE_FD, .event_request.fd = event_table[i].fd, .event_request.flags = event_table[i].flags };
+			driver_data_t data = { TYPE_FD, 0L, {} };
+			data.event_request.fd = event_table[i].fd;
+			data.event_request.flags = event_table[i].flags;
 			if( (event_table[i].flags & EH_EXCEPTION) &&  FD_ISSET( event_table[i].fd, exceptfds ) ) 
 				event_table[i].ctx->driver->emit( event_table[i].ctx, EVENT_EXCEPTION, &data );
 			if( (event_table[i].flags & EH_WRITE) &&  FD_ISSET( event_table[i].fd, writefds ) )
@@ -323,7 +328,8 @@ int handle_timer_events()
 {
 	int i;
 
-	driver_data_t tick = { TYPE_TICK, .event_tick = time(0L) };
+	driver_data_t tick = { TYPE_TICK, 0L, {} };
+	tick.event_tick = time(0L);
 
 	// All drivers get the same 'tick' timestamp, even if some drivers take time to process the tick
 	for(i = 0; i < MAX_EVENT_REQUESTS; i++ )
@@ -336,18 +342,32 @@ int handle_timer_events()
 int event_loop( int timeout )
 {
 	fd_set fds_read, fds_write, fds_exception;
-	struct timespec tm = { timeout / 1000, (timeout % 1000) * 1000 };
 	int max_fd = 0;
 
 	if( ! create_event_set( &fds_read, &fds_write, &fds_exception, &max_fd ) )
 		return -1;
 
+#ifdef USE_PSELECT
 	// If I know there are signals which need processing, reset the select timeout to 0
 	// Signals are normally blocked, so these would be manufactured events.
+	struct timespec tm = { timeout / 1000, (timeout % 1000) * 1000 };
+
 	if( event_signals.event_signal_pending_count )
 		tm.tv_nsec = tm.tv_sec = 0;
 
 	int rc = pselect( max_fd, &fds_read, &fds_write, &fds_exception, &tm, &event_signals.event_signal_default );
+#else
+	struct timeval tm = { timeout / 1000, (timeout % 1000) };
+
+	// expect queued signals to occur immediately
+	sigprocmask( SIG_SETMASK, &event_signals.event_signal_default, NULL );
+	sleep(0);
+
+	if( event_signals.event_signal_pending_count )
+		tm.tv_usec = tm.tv_sec = 0;
+
+	int rc = select( max_fd, &fds_read, &fds_write, &fds_exception, &tm );
+#endif
 	sigprocmask(SIG_BLOCK, &event_signals.event_signal_mask, NULL);
 
 	if( rc < 0 ) {
@@ -386,16 +406,16 @@ ssize_t event_read( int fd, char *buffer, size_t len )
 	//d_printf("Calling read(%d, %p, %ld)\n",fd,buffer,len);
 	ssize_t rc;
 	while( (rc = read( fd, buffer, len )) < 0 ) {
-		d_printf("Read returned error.  %ld:%s(%d)\n",rc,strerror(errno),errno);
+		d_printf("Read returned error.  %d:%s(%d)\n",rc,strerror(errno),errno);
 		if( errno != EAGAIN )
 			return rc;
 	}
 	return rc;
 }
 
-int emit( context_t *ctx, event_t event, driver_data_t *event_data )
+ssize_t emit( context_t *ctx, event_t event, driver_data_t *event_data )
 {
-	if( ctx->driver )
+	if( ctx && ctx->driver )
 		return ctx->driver->emit( ctx, event,event_data ? event_data : DRIVER_DATA_NONE );
 
 	return -1;

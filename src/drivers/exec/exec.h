@@ -2,6 +2,7 @@
 #ifndef __DRIVER_EXEC_H_
 #define __DRIVER_EXEC_H_
 
+#include "ringbuf.h"
 #include "driver.h"
 
 #define FD_READ 0
@@ -30,9 +31,10 @@ typedef struct exec_config_t {
 	int fd_out;
 	time_t last_tick;
 	time_t termination_timestamp;
+	u_ringbuf_t output;
 } exec_config_t;
 
 extern int exec_init(context_t *);
 extern int exec_shutdown(context_t *);
-extern int exec_handler(context_t *, event_t event, driver_data_t *event_data);
+extern ssize_t exec_handler(context_t *, event_t event, driver_data_t *event_data);
 #endif

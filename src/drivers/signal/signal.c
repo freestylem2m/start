@@ -53,7 +53,7 @@ int signal_shutdown(context_t *context)
 	return 1;
 }
 
-int signal_handler(context_t *ctx, event_t event, driver_data_t *event_data )
+ssize_t signal_handler(context_t *ctx, event_t event, driver_data_t *event_data )
 {
 	event_request_t *fd = 0L;
 	event_data_t *data = 0L;
@@ -93,22 +93,22 @@ int signal_handler(context_t *ctx, event_t event, driver_data_t *event_data )
 				event_bytes( fd->fd, &bytes );
 				d_printf("exec state = %d\n",cf->state );
 				if( bytes ) {
-					d_printf("Read event for fd = %d (%ld bytes)\n",fd->fd, bytes);
+					d_printf("Read event for fd = %d (%d bytes)\n",fd->fd, bytes);
 					char read_buffer[MAX_READ_BUFFER];
 
 					if( bytes >= MAX_READ_BUFFER ) {
 						bytes = MAX_READ_BUFFER-1;
-						d_printf("WARNING: Truncating read to %ld bytes\n",bytes);
+						d_printf("WARNING: Truncating read to %d bytes\n",bytes);
 					}
 
 					ssize_t result = event_read( fd->fd, read_buffer, bytes);
-					d_printf("Read event returned %ld bytes of data\n",bytes);
+					d_printf("Read event returned %d bytes of data\n",bytes);
 
 					if( result >= 0 ) {
 						read_buffer[result] = 0;
 						return 0;
 					} else
-						d_printf(" * WARNING: read return unexpected result %ld\n",result);
+						d_printf(" * WARNING: read return unexpected result %d\n",result);
 				} else {
 
 					d_printf("EOF on input. Cleaning up\n");
@@ -127,10 +127,7 @@ int signal_handler(context_t *ctx, event_t event, driver_data_t *event_data )
 			break;
 
 		case EVENT_TICK:
-			{
-				char buffer[64];
-				d_printf("%s:   ** Tick **\n", buffer );
-			}
+			d_printf(" ** Tick **\n" );
 			break;
 
 		default:

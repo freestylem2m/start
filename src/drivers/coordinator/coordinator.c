@@ -41,11 +41,10 @@
 #include "driver.h"
 #include "events.h"
 #include "coordinator.h"
+#include "logger.h"
 
 int coordinator_init(context_t *context)
 {
-	d_printf("Hello from COORDINATOR INIT!\n");
-
 	coordinator_config_t *cf;
 
 	if ( 0 == (cf = (coordinator_config_t *) calloc( sizeof( coordinator_config_t ) , 1 )))
@@ -53,45 +52,66 @@ int coordinator_init(context_t *context)
 
 	cf->state = COORDINATOR_STATE_IDLE;
 
-	if( config_istrue( context->config, "respawn" ) )
-		cf->flags |= COORDINATOR_RESPAWN;
-
 	context->data = cf;
 
 	return 1;
 }
 
-int coordinator_shutdown( context_t *context)
+int coordinator_shutdown( context_t *ctx)
 {
-	(void)(context);
-	d_printf("Goodbye from EXEC!\n");
+	coordinator_config_t *cf = (coordinator_config_t *) ctx->data;
+
+	if( cf->logger )
+		context_terminate( cf->logger );
+
+	free( cf );
+
 	return 1;
 }
 
 #define MAX_READ_BUFFER 1024
-int coordinator_handler(context_t *ctx, event_t event, driver_data_t *event_data )
+ssize_t coordinator_handler(context_t *ctx, event_t event, driver_data_t *event_data )
 {
-	event_request_t *fd = 0L;
 	event_data_t *data = 0L;
+	event_child_t *child = 0L;
 
 	coordinator_config_t *cf = (coordinator_config_t *) ctx->data;
 
-	d_printf("event = \"%s\" (%d)\n *\n *\n", event_map[event], event);
+	d_printf("> Event = \"%s\" (%d)\n", event_map[event], event);
 
-	if( event_data->type == TYPE_FD )
-		fd = & event_data->event_request;
-	else if( event_data->type == TYPE_DATA )
+	if( event_data->type == TYPE_DATA )
 		data = & event_data->event_data;
+	else if( event_data->type == TYPE_CHILD )
+		child = & event_data->event_child;
 
 	switch( event ) {
 		case EVENT_INIT:
-			d_printf( "INIT event triggered\n");
 			{
 				event_add( ctx, SIGQUIT, EH_SIGNAL );
-				event_add( ctx, SIGCHLD, EH_SIGNAL );
+				event_add( ctx, SIGINT, EH_SIGNAL );
+				event_add( ctx, SIGTERM, EH_SIGNAL );
+				event_add( ctx, 0, EH_WANT_TICK );
+
+				const char *log = config_get_item( ctx->config, "logger" );
+				const char *unicorn = config_get_item( ctx->config, "modemdriver" );
+
+                if( log )
+                    cf->logger = start_service( log, ctx->config, ctx );
+
+				if( unicorn )
+					cf->unicorn = start_service( unicorn, ctx->config, ctx );
+
+                if( ! cf->logger ) {
+                    fprintf(stderr,"Failed to start the logger process\n");
+                    exit (0);
+                }
 
 				cf->state = COORDINATOR_STATE_RUNNING;
 			}
+			break;
+
+		case EVENT_CHILD:
+			d_printf("Got a message from a child (%s).. probably starting\n", child->ctx->name);
 			break;
 
 		case EVENT_TERMINATE:
@@ -102,18 +122,17 @@ int coordinator_handler(context_t *ctx, event_t event, driver_data_t *event_data
 
 			if( cf->state == COORDINATOR_STATE_RUNNING ) {
 				cf->flags |= COORDINATOR_TERMINATING;
-			} else {
+			} else
 				context_terminate( ctx );
-			}
 			break;
 
 		case EVENT_DATA_INCOMING:
 		case EVENT_DATA_OUTGOING:
 			if( data ) {
 				d_printf("Got a DATA event from my parent...\n");
-				d_printf("bytes = %ld\n",data->bytes );
-				d_printf("buffer = %s\n",data->data );
-				d_printf("buffer[%ld] = %d\n",data->bytes,data->data[data->bytes]);
+				d_printf("bytes = %d\n",data->bytes );
+				d_printf("buffer = %s\n", (char *) data->data );
+				d_printf("buffer[%d] = %d\n",data->bytes,((char *)data->data)[data->bytes]);
 			} else {
 				d_printf("Got a DATA event from my parent... WITHOUT ANY DATA!!!\n");
 			}
@@ -121,15 +140,15 @@ int coordinator_handler(context_t *ctx, event_t event, driver_data_t *event_data
 			break;
 
 		case EVENT_READ:
-			d_printf("Read event triggerred for fd = %d\n",fd->fd);
+			d_printf("tick..");
 			break;
 
 		case EVENT_EXCEPTION:
-			d_printf("Got an exception on FD %d\n",fd->fd);
 			break;
 
 		case EVENT_SIGNAL:
 			d_printf("Woa! Got a sign from the gods... %d\n",event_data->event_signal);
+			kill(0,SIGKILL);
 			break;
 
 		case EVENT_TICK:
@@ -150,8 +169,11 @@ int coordinator_handler(context_t *ctx, event_t event, driver_data_t *event_data
 			}
 			break;
 
-		default:
-			d_printf("\n *\n *\n * Emitted some kind of event \"%s\" (%d)\n *\n *\n", event_map[event], event);
-	}
-	return 0;
+        case EVENT_NONE:
+        case EVENT_WRITE:
+        case EVENT_MAX:
+        default:
+            d_printf("\n *\n *\n * Emitted some kind of event \"%s\" (%d)\n *\n *\n", event_map[event], event);
+    }
+    return 0;
 }

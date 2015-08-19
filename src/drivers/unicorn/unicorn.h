@@ -35,30 +35,11 @@
 #define __DRIVER_UNICORN_H_
 
 #include <stdint.h>
+#include "ringbuf.h"
 #include "driver.h"
 
 #define FD_READ 0
 #define FD_WRITE 1
-
-#define PROCESS_TERMINATION_TIMEOUT 10
-
-typedef enum {
-	UNICORN_STATE_IDLE,
-	UNICORN_STATE_RUNNING,
-	UNICORN_STATE_STOPPING,
-	UNICORN_STATE_ERROR
-} unicorn_state_t;
-
-typedef enum {
-	UNICORN_NONE = 0,
-	UNICORN_TERMINATING = 1,
-} unicorn_flags_t;
-
-typedef struct unicorn_config_t {
-	unicorn_state_t state;
-	unicorn_flags_t flags;
-	time_t last_tick;
-} unicorn_config_t;
 
 // ** Host Command Interface for Modem management software
 
@@ -101,22 +82,37 @@ typedef struct frmHdr_s
 
 } __attribute__((packed)) frmHdr_t;
 
-typedef struct frmBuff_s
-{
-    uint8_t buffer[BUFF_SIZE_FRAMEBUFF];
+#define PROCESS_TERMINATION_TIMEOUT 10
 
-    int length;
-    int rbytes;
-    int wbytes;
+// ** Driver State
 
-} frmBuff_t;
+typedef enum {
+	UNICORN_STATE_IDLE,
+	UNICORN_STATE_RUNNING,
+	UNICORN_STATE_STOPPING,
+	UNICORN_STATE_ERROR
+} unicorn_state_t;
 
+typedef enum {
+	UNICORN_NONE = 0,
+	UNICORN_TERMINATING = 1,
+	UNICORN_EXPECTING_DATA = 2,
+} unicorn_flags_t;
 
+typedef struct unicorn_config_t {
+	unicorn_state_t state;
+	unicorn_flags_t flags;
+	context_t *modem;
+	u_ringbuf_t input;
+	time_t last_message;
+	time_t last_tick;
 
-
+	frmHdr_t  msgHdr;
+	uint16_t driver_state;    
+} unicorn_config_t;
 
 extern int unicorn_init(context_t *);
 extern int unicorn_shutdown(context_t *);
-extern int unicorn_handler(context_t *, event_t event, driver_data_t *event_data);
+extern ssize_t unicorn_handler(context_t *, event_t event, driver_data_t *event_data);
 #endif
 

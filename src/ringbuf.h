@@ -21,6 +21,9 @@
 *
 ******************************************************************************************************/
 
+#ifndef __RINGBUF_H__
+#define __RINGBUF_H__
+
 #include <sys/types.h>
 #include <unistd.h>
 
@@ -45,7 +48,10 @@ typedef struct u_ringbuf_s {
 extern void u_ringbuf_init( u_ringbuf_t *rb );
 extern int u_ringbuf_empty(u_ringbuf_t *rb);
 extern int u_ringbuf_full(u_ringbuf_t *rb);
+extern size_t u_ringbuf_ready(u_ringbuf_t *rb);
 extern size_t u_ringbuf_avail( u_ringbuf_t *rb );
 extern ssize_t u_ringbuf_write_fd( u_ringbuf_t *rb, int fd);
-extern ssize_t u_ringbuf_read( u_ringbuf_t *rb, char *buffer, size_t length);
-extern ssize_t u_ringbuf_write( u_ringbuf_t *rb, char *buffer, size_t length);
+extern ssize_t u_ringbuf_read( u_ringbuf_t *rb, void *buffer, size_t length);
+extern ssize_t u_ringbuf_write( u_ringbuf_t *rb, void *buffer, size_t length);
+
+#endif // __RINGBUF_H__

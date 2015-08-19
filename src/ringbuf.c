@@ -65,6 +65,12 @@ size_t u_ringbuf_avail( u_ringbuf_t *rb )
 	return RINGBUFFER_MAX - (rb->write_ptr-rb->read_ptr);
 }
 
+// return the number of bytes ready to read
+size_t u_ringbuf_ready( u_ringbuf_t *rb )
+{
+	return rb->write_ptr - rb->read_ptr;
+}
+
 // stream ring buffer data (all of it) to a file descriptor.
 // Failure to write all data will terminate streaming and return
 // with the number of bytes written so far, or -1 for error
@@ -106,7 +112,7 @@ ssize_t u_ringbuf_write_fd( u_ringbuf_t *rb, int fd)
 // until the end of the buffer, adjusts itself, then restarts at the beginning
 // of the buffer.
 //
-ssize_t u_ringbuf_read( u_ringbuf_t *rb, char *buffer, size_t length)
+ssize_t u_ringbuf_read( u_ringbuf_t *rb, void *buffer, size_t length)
 {
 	size_t bytes = 0;
 
@@ -137,7 +143,7 @@ ssize_t u_ringbuf_read( u_ringbuf_t *rb, char *buffer, size_t length)
 // WARNING:  "length" must be <= "u_ringbuf_avail( rb )" or it will
 //           overwrite data not yet read from the buffer.
 //
-ssize_t u_ringbuf_write( u_ringbuf_t *rb, char *buffer, size_t length)
+ssize_t u_ringbuf_write( u_ringbuf_t *rb, void *buffer, size_t length)
 {
 	size_t bytes = 0;
 
@@ -153,7 +159,6 @@ ssize_t u_ringbuf_write( u_ringbuf_t *rb, char *buffer, size_t length)
 		buffer += eb;
 		length -= eb;
 	}
-	fprintf(stderr,"done filling buffer\n");
 	return (ssize_t)bytes;
 }
 

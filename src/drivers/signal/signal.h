@@ -21,5 +21,5 @@ typedef struct signal_config_s {
 
 extern int signal_init(context_t *);
 extern int signal_shutdown(context_t *);
-extern int signal_handler(context_t *, event_t event, driver_data_t *event_data);
+extern ssize_t signal_handler(context_t *, event_t event, driver_data_t *event_data);
 #endif

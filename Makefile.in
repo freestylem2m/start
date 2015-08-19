@@ -1,14 +1,28 @@
+#####################################################################
+#
+# Makefile for netmanage process
+#
+# Adjust
+#####################################################################
 
-WARNINGS=-Wall -Wenum-compare -Wconversion -Werror -Warray-bounds -Wshadow -Wunused-parameter
-FEATURES=-O0 -fshort-enums -fbounds-check
-DEBUG=-g
-#DEBUG=-DNDEBUG
+WARNINGS=-Wall -Wconversion -Werror -Wshadow -Wunused-parameter
+#EXTRA_WARNINGS=-Wenum-compare -Warray-bounds
+FEATURES=-fshort-enums -fbounds-check
+
+# Configure debugging or Optimization
+DEBUG=-g -O0
+#RELEASE=-DNDEBUG -O2
+
+# Override CC to use the mips compiler.  Remember to turn of "EXTRA_WARNINGS" which are
+# unsupposed on gcc-3.4.2
+CC=/opt/buildroot-gcc342/bin/mipsel-linux-gcc
+#ARCH=-m32
+
 INCLUDES=-Isrc
+CFLAGS=$(DEBUG) $(RELEASE) $(INCLUDES) $(EXTRA_FLAGS) $(ARCH) $(WARNINGS) $(EXTRA_WARNINGS) $(FEATURES)
+LDFLAGS=$(DEBUG)
 
-CFLAGS=$(DEBUG) $(INCLUDES) $(WARNINGS) $(FEATURES)
-LDFLAGS=-g
-
-.SILENT:
+#.SILENT:
 
 MANAGER_SOURCE=$(wildcard src/*.c)
 MANAGER_OBJECTS=$(MANAGER_SOURCE:.c=.o)
@@ -23,6 +37,7 @@ DRIVER_OBJECTS=$(DRIVER_SOURCE:.c=.o)
 
 netmanage: .depend $(MANAGER_OBJECTS) $(DRIVER_OBJECTS)
 	$(CC) $(LDFLAGS) -o $@ $(MANAGER_OBJECTS) $(DRIVER_OBJECTS)
+	cp netmanage /home/freestyle/fme
 
 clean:
 	/bin/rm -f .depend $(MANAGER_OBJECTS) $(DRIVER_OBJECTS) netmanage src/driver_config.h src/driver_setup.h
