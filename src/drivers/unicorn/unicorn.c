@@ -139,6 +139,10 @@ ssize_t process_unicorn_data( context_t *ctx )
 						if( cf->msgHdr.state != cf->driver_state ) {
 							cf->last_state_timestamp = cf->last_message;
 							d_printf("Handling state change. cf->flags = %x (terminating %s)\n", cf->flags, cf->flags&UNICORN_TERMINATING?"true":"false");
+							if( cf->msgHdr.state == CMD_ST_ONLINE || cf->msgHdr.state == CMD_ST_ONLINE  ) {
+								d_printf("Notifying parent that the network state has changed to %s\n",cf->msgHdr.state == CMD_ST_ONLINE ? "online":"offline");
+								context_owner_notify( ctx, CHILD_EVENT, cf->msgHdr.state == CMD_ST_ONLINE ? UNICORN_MODE_ONLINE : UNICORN_MODE_OFFLINE );
+							}
 							if( cf->flags & UNICORN_TERMINATING ) {
 								d_printf("State = TERMINATING, need to shutdown driver\n");
 								if( cf->msgHdr.state == CMD_ST_OFFLINE ) {

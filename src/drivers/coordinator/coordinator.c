@@ -42,6 +42,7 @@
 #include "events.h"
 #include "coordinator.h"
 #include "logger.h"
+#include "unicorn.h"
 
 int coordinator_init(context_t *context)
 {
@@ -113,11 +114,13 @@ ssize_t coordinator_handler(context_t *ctx, event_t event, driver_data_t *event_
 		case EVENT_CHILD:
 			d_printf("Got a message from a child (%s:%d).. probably starting\n", child->ctx->name, child->action);
             logger( cf->logger, ctx, "Child %s entered state %d\n", child->ctx->name, child->action );
-			if( child->action == CHILD_STOPPED ) {
-				if( child->ctx == cf->unicorn ) {
+			if( child->ctx == cf->unicorn ) {
+				if( child->action == CHILD_STOPPED ) {
 					d_printf("Unicorn driver has exited.  Terminating\n");
 					cf->unicorn = 0L;
 					context_terminate( ctx );
+				} else if( child->action == CHILD_EVENT ) {
+					d_printf("Unicord driver state updated to %s\n", child->status == UNICORN_MODE_ONLINE?"online":"offline");
 				}
 			}
 			break;

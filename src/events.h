@@ -65,6 +65,7 @@ typedef enum
 	EVENT_CHILD,
 	EVENT_RESTARTING,
 	EVENT_MAX,
+	EVNET_STATE,
 
     // Driver specific events
 	EXEC_SET_RESPAWN,

@@ -95,8 +95,15 @@ typedef enum {
 	UNICORN_STATE_IDLE,
 	UNICORN_STATE_RUNNING,
 	UNICORN_STATE_STOPPING,
-	UNICORN_STATE_ERROR
+	UNICORN_STATE_ERROR,
 } unicorn_state_t;
+
+typedef enum {
+	// These are states sent to the parent.
+	UNICORN_MODE_UNKNOWN,
+	UNICORN_MODE_OFFLINE,
+	UNICORN_MODE_ONLINE,
+} unicorn_mode_t;
 
 typedef enum {
 	UNICORN_NONE = 0,
