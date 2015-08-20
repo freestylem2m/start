@@ -58,7 +58,12 @@ ssize_t signal_handler(context_t *ctx, event_t event, driver_data_t *event_data 
 	event_request_t *fd = 0L;
 	event_data_t *data = 0L;
 
+#ifndef NDEBUG
 	signal_config_t *cf = (signal_config_t *) ctx->data;
+#endif
+#ifdef NDEBUG
+	UNUSED(ctx);
+#endif
 
 	d_printf("event = \"%s\" (%d)\n *\n *\n", event_map[event], event);
 

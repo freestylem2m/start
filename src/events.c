@@ -56,6 +56,7 @@ char *event_map[] = {
 	"EVENT_WRITE",
 	"EVENT_EXCEPTION",
 	"EVENT_SIGNAL",
+	"EVENT_SEND_SIGNAL",
 	"EVENT_TICK",
 	"EVENT_DATA_INCOMING",
 	"EVENT_DATA_OUTGOING",
@@ -197,7 +198,7 @@ event_request_t *event_add( context_t *ctx, const int fd, event_handler_flags_t 
 			sigaddset( &event_signals.event_signal_mask, fd );
 			sigdelset( &event_signals.event_signal_default, fd );
 		}
-	} else 
+	} else
         if( (flags & (EH_READ|EH_WRITE)) && ! ( flags & EH_SPECIAL ) )
             fcntl(fd, F_SETFL, fcntl(fd, F_GETFL) | O_NONBLOCK);
 
@@ -249,10 +250,21 @@ int create_event_set( fd_set *readfds, fd_set *writefds, fd_set *exceptfds, int 
 	return count;
 }
 
+#ifndef NDEBUG
+#ifdef mips
 char           *sigmap[] = {
-	"NONE", "HUP", "INT", "QUIT", "ILL", "TRAP", "ABRT", "BUS", "FPE", "KILL", "USR1", "SEGV", "USR2", "PIPE", "ALRM", "TERM",
-	"STKFLT", "CHLD", "CONT", "STOP", "TSTP", "TTIN", "TTOU", "URG", "XCPU", "XFSZ", "VTALRM", "PROF", "WINCH", "IO", "PWR", "SYS"
+	"NONE", "HUP", "INT", "QUIT", "ILL", "TRAP", "ABRT",
+	"EMT", "FPE", "KILL", "BUS", "SEGV", "SYS", "PIPE", "ALRM", "TERM", "USR1", "USR2",
+	"CHLD", "PWR", "WINCH", "URG", "IO", "STOP", "TSTP", "CONT", "TTIN", "TTOU", "VTALRM", "PROF", "XCPU", "XFZS"
 };
+#else
+char           *sigmap[] = {
+	"NONE", "HUP", "INT", "QUIT", "ILL", "TRAP", "ABRT",
+	"BUS", "FPE", "KILL", "USR1", "SEGV", "USR2", "PIPE", "ALRM", "TERM", "STKFLT", "CHLD",
+	"CONT", "STOP", "TSTP", "TTIN", "TTOU", "URG", "XCPU", "XFSZ", "VTALRM", "PROF", "WINCH", "IO", "PWR", "SYS"
+};
+#endif
+#endif
 
 void handle_signal_event( int sig_event )
 {
@@ -268,7 +280,7 @@ void handle_signal_event( int sig_event )
 		pid = waitpid(-1, &status, WNOHANG );
 		if( pid > 0 ) {
 			d_printf("Child PID = %d\n",pid);
-			int i; 
+			int i;
 			for( i = 0; i < MAX_SIGCHLD; i++ )
 				if( event_signals.child_events[i].pid <= 0 ) {
 					event_signals.child_events[i].pid = pid;
@@ -313,7 +325,7 @@ int handle_event_set( fd_set *readfds, fd_set *writefds, fd_set *exceptfds )
 			driver_data_t data = { TYPE_FD, 0L, {} };
 			data.event_request.fd = event_table[i].fd;
 			data.event_request.flags = event_table[i].flags;
-			if( (event_table[i].flags & EH_EXCEPTION) &&  FD_ISSET( event_table[i].fd, exceptfds ) ) 
+			if( (event_table[i].flags & EH_EXCEPTION) &&  FD_ISSET( event_table[i].fd, exceptfds ) )
 				event_table[i].ctx->driver->emit( event_table[i].ctx, EVENT_EXCEPTION, &data );
 			if( (event_table[i].flags & EH_WRITE) &&  FD_ISSET( event_table[i].fd, writefds ) )
 				event_table[i].ctx->driver->emit( event_table[i].ctx,  EVENT_WRITE, &data );
@@ -358,6 +370,19 @@ int event_loop( int timeout )
 	int rc = pselect( max_fd, &fds_read, &fds_write, &fds_exception, &tm, &event_signals.event_signal_default );
 #else
 	struct timeval tm = { timeout / 1000, (timeout % 1000) };
+
+#ifndef NDEBUG
+	if( 1 ) {
+		sigset_t pendings;
+		sigpending( &pendings );
+		int i;
+		for( i=1; i< 32; i++ )  {
+			if( sigismember( &pendings, i ) ) {
+				d_printf("PENDING SIGNAL: %d\n",i);
+			}
+		}
+	}
+#endif
 
 	// expect queued signals to occur immediately
 	sigprocmask( SIG_SETMASK, &event_signals.event_signal_default, NULL );
@@ -415,8 +440,10 @@ ssize_t event_read( int fd, char *buffer, size_t len )
 
 ssize_t emit( context_t *ctx, event_t event, driver_data_t *event_data )
 {
-	if( ctx && ctx->driver )
+	if( ctx && (ctx->state != CTX_UNUSED) && ctx->driver )
 		return ctx->driver->emit( ctx, event,event_data ? event_data : DRIVER_DATA_NONE );
+	else
+		d_printf("emit() called for bad context (%p -> %s)\n",ctx,ctx->name );
 
 	return -1;
 }

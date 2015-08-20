@@ -47,7 +47,7 @@ distclean: clean
 	/bin/rm -rf autom4te.cache .ycm_extra_conf.pyc
 
 .depend: Makefile
-	find . -type f -name "*.c" | sed 's/^.\/\(.*\)\.c/\1.o: \1.c \1.h/' > .depend
+	find . -type f -name "*.c" | sed 's/^.\/\(.*\)\.c/\1.o: \1.c \1.h src\/events.h src\/driver.h src\/netmanage.h/' > .depend
 
 src/driver.c: src/driver_config.h src/driver_setup.h
 

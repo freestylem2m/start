@@ -77,7 +77,7 @@ ssize_t coordinator_handler(context_t *ctx, event_t event, driver_data_t *event_
 
 	coordinator_config_t *cf = (coordinator_config_t *) ctx->data;
 
-	d_printf("> Event = \"%s\" (%d)\n", event_map[event], event);
+	//d_printf("> Event = \"%s\" (%d)\n", event_map[event], event);
 
 	if( event_data->type == TYPE_DATA )
 		data = & event_data->event_data;
@@ -111,7 +111,15 @@ ssize_t coordinator_handler(context_t *ctx, event_t event, driver_data_t *event_
 			break;
 
 		case EVENT_CHILD:
-			d_printf("Got a message from a child (%s).. probably starting\n", child->ctx->name);
+			d_printf("Got a message from a child (%s:%d).. probably starting\n", child->ctx->name, child->action);
+            logger( cf->logger, ctx, "Child %s entered state %d\n", child->ctx->name, child->action );
+			if( child->action == CHILD_STOPPED ) {
+				if( child->ctx == cf->unicorn ) {
+					d_printf("Unicorn driver has exited.  Terminating\n");
+					cf->unicorn = 0L;
+					context_terminate( ctx );
+				}
+			}
 			break;
 
 		case EVENT_TERMINATE:
@@ -140,7 +148,21 @@ ssize_t coordinator_handler(context_t *ctx, event_t event, driver_data_t *event_
 			break;
 
 		case EVENT_READ:
-			d_printf("tick..");
+#if 0
+			{
+				event_request_t *fd = & event_data->event_request;
+				d_printf("read event here..\n");
+				char temp;
+				size_t sp = 0;
+				event_bytes( fd->fd, &sp );
+				if( sp > 0 )
+					read(fd->fd , &temp, 1);
+				else {
+					d_printf("EOF on stdin...\n");
+					kill(0,SIGKILL);
+				}
+			}
+#endif
 			break;
 
 		case EVENT_EXCEPTION:
@@ -148,7 +170,9 @@ ssize_t coordinator_handler(context_t *ctx, event_t event, driver_data_t *event_
 
 		case EVENT_SIGNAL:
 			d_printf("Woa! Got a sign from the gods... %d\n",event_data->event_signal);
-			kill(0,SIGKILL);
+			if( event_data->event_signal == SIGTERM ) {
+				kill(0,SIGKILL);
+			}
 			break;
 
 		case EVENT_TICK:
@@ -156,7 +180,7 @@ ssize_t coordinator_handler(context_t *ctx, event_t event, driver_data_t *event_
 				char buffer[64];
 				time_t now = time(0L);
 				strftime(buffer,64,"%T",localtime(&now));
-				d_printf("%s:   ** Tick (%ld seconds) **\n", buffer, cf->last_tick ? time(0L)-cf->last_tick : -1);
+				//d_printf("%s:   ** Tick (%ld seconds) **\n", buffer, cf->last_tick ? time(0L)-cf->last_tick : -1);
 				time( & cf->last_tick );
 				if( cf->flags & COORDINATOR_TERMINATING ) {
 					d_printf("Been terminating for %ld seconds...\n",time(0L) - cf->termination_timestamp );

@@ -37,40 +37,6 @@
 #include "driver.h"
 #include "events.h"
 
-context_t *start_driver( const char *driver_name, const config_t *parent_config, context_t *owner )
-{
-	const driver_t *driver;
-	const config_t *driver_config;
-
-	context_t *ctx;
-
-	if( ( ctx = find_context( driver_name ) ))
-		return ctx;
-
-	driver = find_driver(driver_name);
-	driver_config = config_get_section(driver_name);
-
-	if( driver ) {
-		ctx = context_create(driver_name, parent_config, driver, driver_config);
-		//d_printf("context_create(%s) returned %p\n", driver_name, ctx);
-		//d_printf("find_driver(%s) returned %p\n", driver_name,  driver);
-		if( ctx ) {
-			ctx->owner = owner;
-			if (driver->init(ctx)) {
-				//d_printf("emit(\"init\") to driver %s\n", driver_name);
-				ctx->flags = CTX_RUNNING;
-				ctx->driver->emit( ctx, EVENT_INIT, DRIVER_DATA_NONE );
-				return ctx;
-			} else
-				context_delete(ctx, NULL);
-		}
-	} else
-		d_printf("Unable to locate driver %s for %s\n",driver_name,parent_config->section);
-
-	d_printf("start driver \"%s\" returning failure\n",driver_name );
-	return 0L;
-}
-
 context_t *safe_start_service( const char *name, const config_t *parent_config, context_t *owner, int depth )
 {
 	context_t *ctx = 0L;

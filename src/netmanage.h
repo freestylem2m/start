@@ -6,9 +6,9 @@
 #include "events.h"
 
 #ifndef NDEBUG
-#define	d_printf(...)	{ if (debug >= debug_quiet) { printf("%s:%s:%d ",__FILE__,__func__,__LINE__); printf(__VA_ARGS__); } }
+#define	d_printf(...)	{ if (debug >= debug_quiet) { fprintf(stderr,"%s:%s:%d ",__FILE__,__func__,__LINE__); fprintf(stderr,__VA_ARGS__); fflush(stderr); } }
 #else
-#define	d_printf(...)
+#define	d_printf(...)   {}
 #endif
 
 #ifndef UNUSED

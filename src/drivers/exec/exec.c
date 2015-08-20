@@ -36,6 +36,7 @@
 #include <sys/wait.h>
 #include <sys/stat.h>
 #include <time.h>
+#include <stdint.h>
 
 #include "netmanage.h"
 #include "driver.h"
@@ -68,6 +69,21 @@ int exec_init(context_t *context)
 int exec_shutdown(context_t *ctx)
 {
 	d_printf("Goodbye from EXEC!\n");
+
+	exec_config_t *cf = (exec_config_t *) ctx->data;
+	int siglist[] = { SIGTERM, SIGTERM, SIGKILL, 0 };
+	int sigid = 0;
+
+	// Cycle through the list of signals, sending them until the
+	// child process has terminated, (or I run out of signals)
+
+	if( cf->pid > 0 )
+		while( !kill( cf->pid, 0 ) && siglist[sigid] ) {
+			kill( cf->pid, siglist[sigid++] );
+			usleep( 1000 );
+		}
+
+
 	if( ctx->data )
 		free( ctx->data );
 	ctx->data = 0;
@@ -245,7 +261,7 @@ ssize_t exec_handler(context_t *ctx, event_t event, driver_data_t *event_data )
 
 	exec_config_t *cf = (exec_config_t *) ctx->data;
 
-	d_printf("event = \"%s\" (%d)\n", event_map[event], event);
+	//d_printf("event = \"%s\" (%d)\n", event_map[event], event);
 
 	if( event_data->type == TYPE_FD )
 		fd = & event_data->event_request;
@@ -261,12 +277,9 @@ ssize_t exec_handler(context_t *ctx, event_t event, driver_data_t *event_data )
 				event_add( ctx, SIGCHLD, EH_SIGNAL );
 				event_add( ctx, SIGPIPE, EH_SIGNAL );
 
-				if( ! exec_launch( ctx ) ) {
+				if( ! exec_launch( ctx ) )
 					cf->state = EXEC_STATE_RUNNING;
-					driver_data_t notification = { TYPE_CUSTOM, ctx, {} };
-					notification.event_custom = 0L;
-					emit( ctx->owner, EVENT_CHILD, &notification );
-				} else {
+				else {
 					d_printf("exec() failed to start process\n");
 					cf->state = EXEC_STATE_ERROR;
 					return context_terminate(ctx);
@@ -285,19 +298,50 @@ ssize_t exec_handler(context_t *ctx, event_t event, driver_data_t *event_data )
 				cf->flags |= EXEC_TERMINATING;
 			} else {
 				context_terminate( ctx );
-			}
+            }
+            break;
+
+        case EXEC_SET_RESPAWN:
+            {
+                uint8_t flag = 0;
+                if( event_data->type == TYPE_CUSTOM && event_data->event_custom )
+                    flag = *(uint8_t *) (event_data->event_custom);
+
+                if( flag ) {
+                    cf->flags |= EXEC_RESPAWN;
+                } else {
+                    cf->flags &= ~(unsigned int)EXEC_RESPAWN;
+                }
+            }
+            break;
+
+        case EVENT_RESTART:
+            {
+                uint8_t sig = 0;
+                if( event_data->type == TYPE_CUSTOM && event_data->event_custom )
+                    sig = *(uint8_t *) (event_data->event_custom);
+
+                cf->flags |= EXEC_RESTARTING;
+                if( sig )
+                    kill( cf->pid, sig );
+
+                close(cf->fd_out);
+                event_delete( ctx, cf->fd_out, EH_NONE );
+                cf->fd_out = -1;
+
+                d_printf("Got a restart request (signal = %d)..\n", sig);
+            }
 			break;
 
 		case EVENT_DATA_INCOMING:
 		case EVENT_DATA_OUTGOING:
 			if( data ) {
 				d_printf("Got a DATA event from my parent...\n");
-				d_printf("bytes = %d\n",data->bytes );
-				d_printf("bytes = %d\n",data->bytes );
-				d_printf("buffer = %s\n", (char *) data->data );
-				d_printf("buffer[%d] = %d\n",data->bytes,((char *)data->data)[data->bytes]);
-				d_printf("writing to file %d\n",cf->fd_out);
-				d_printf("state = %d\n",cf->state);
+				//d_printf("bytes = %d\n",data->bytes );
+				//d_printf("buffer = %s\n", (char *) data->data );
+				//d_printf("buffer[%d] = %d\n",data->bytes,((char *)data->data)[data->bytes]);
+				//d_printf("writing to file %d\n",cf->fd_out);
+				//d_printf("state = %d\n",cf->state);
 				if( cf->state == EXEC_STATE_RUNNING )
 					if( write( cf->fd_out, data->data, data->bytes ) < 0)
 						d_printf("Failed to forward incoming data\n");
@@ -368,6 +412,17 @@ ssize_t exec_handler(context_t *ctx, event_t event, driver_data_t *event_data )
 			}
 			break;
 
+		case EVENT_SEND_SIGNAL:
+			d_printf("Asked to send a signal to process\n");
+			if( cf->pid > 0 ) {
+				kill( cf->pid, event_data->event_signal );
+#ifndef NDEBUG
+			} else {
+				d_printf("No process to signal\n");
+#endif
+			}
+			break;
+
 		case EVENT_SIGNAL:
 			if( event_data->event_signal == SIGCHLD ) {
 				//d_printf("Reaping deceased child (expecting pid %d)\n",cf->pid);
@@ -399,10 +454,10 @@ ssize_t exec_handler(context_t *ctx, event_t event, driver_data_t *event_data )
 			{
 				time( & cf->last_tick );
 				if( cf->flags & EXEC_TERMINATING ) {
-					if(( time(0L) - cf->termination_timestamp ) > (PROCESS_TERMINATION_TIMEOUT*2) ) {
+					if(( time(0L) - cf->termination_timestamp ) > (EXEC_PROCESS_TERMINATION_TIMEOUT*2) ) {
 						d_printf("REALLY Pushing it along with a SIGKILL\n");
 						kill( cf->pid, SIGKILL );
-					} else if(( time(0L) - cf->termination_timestamp ) > PROCESS_TERMINATION_TIMEOUT ) {
+					} else if(( time(0L) - cf->termination_timestamp ) > EXEC_PROCESS_TERMINATION_TIMEOUT ) {
 						d_printf("Pushing it along with a SIGTERM\n");
 						kill( cf->pid, SIGTERM );
 					}

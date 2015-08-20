@@ -56,13 +56,18 @@ typedef enum
 	EVENT_WRITE,
 	EVENT_EXCEPTION,
 	EVENT_SIGNAL,
+	EVENT_SEND_SIGNAL,
 	EVENT_TICK,
 	EVENT_DATA_INCOMING,
 	EVENT_DATA_OUTGOING,
+	EVENT_RESTART,
 	EVENT_TERMINATE,
 	EVENT_CHILD,
 	EVENT_RESTARTING,
-	EVENT_MAX
+	EVENT_MAX,
+
+    // Driver specific events
+	EXEC_SET_RESPAWN,
 } event_t;
 
 #ifndef NDEBUG
@@ -75,7 +80,7 @@ typedef enum
 	CTX_STARTING,
 	CTX_RUNNING,
 	CTX_TERMINATING
-} context_flags_t;
+} context_state_t;
 
 // A "context" is an instance of a driver, with instance configuration and instance data.
 // The "name" is often the same as the name of the "config" stanza.
@@ -96,7 +101,7 @@ typedef struct context_s
 	struct context_s *owner;
 
 	void           *data;
-	context_flags_t flags;
+	context_state_t state;
 } context_t;
 
 typedef enum
@@ -144,9 +149,20 @@ typedef enum
 extern char    *driver_data_type_map[];
 #endif
 
+typedef enum
+{
+	CHILD_STARTING,
+	CHILD_STARTED,
+	CHILD_STOPPING,
+	CHILD_STOPPED,
+	CHILD_FAILED,
+	CHILD_EVENT,
+} child_status_t;
+
 typedef struct event_child_s
 {
 	context_t *ctx;
+	child_status_t action;
 	int status;
 } event_child_t;
 

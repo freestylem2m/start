@@ -8,7 +8,7 @@
 #define FD_READ 0
 #define FD_WRITE 1
 
-#define PROCESS_TERMINATION_TIMEOUT 10
+#define EXEC_PROCESS_TERMINATION_TIMEOUT 10
 
 typedef enum {
 	EXEC_STATE_IDLE,
@@ -20,7 +20,8 @@ typedef enum {
 typedef enum {
 	EXEC_NONE,
 	EXEC_RESPAWN = 1,
-	EXEC_TERMINATING = 2,
+	EXEC_RESTARTING = 2,
+	EXEC_TERMINATING = 4,
 } exec_flags_t;
 
 typedef struct exec_config_t {
