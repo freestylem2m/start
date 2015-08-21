@@ -148,7 +148,10 @@ ssize_t coordinator_handler(context_t *ctx, event_t event, driver_data_t *event_
 						if( cf->network ) {
 							// Restart network driver maybe
 							d_printf("Modem has come online.  network driver is already running.. It should probably be restart\n");
-							emit( cf->network, EVENT_RESTART, 0L );
+							uint8_t sig = SIGKILL;
+							driver_data_t notification = { TYPE_CUSTOM, ctx, {} };
+							notification.event_custom = &sig;
+							emit( cf->network, EVENT_RESTART, &notification );
 							// this probably won't restart pppd automatically yet...
 						} else {
 							d_printf("Calling start_service(%s)\n",cf->network_driver);

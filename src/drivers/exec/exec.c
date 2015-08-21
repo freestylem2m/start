@@ -392,12 +392,21 @@ ssize_t exec_handler(context_t *ctx, event_t event, driver_data_t *event_data )
                     sig = *(uint8_t *) (event_data->event_custom);
 
                 cf->flags |= EXEC_RESTARTING;
-                if( sig )
+                if( sig ) {
+					x_printf(ctx,"Sending signal %d to process\n",sig);
                     kill( cf->pid, sig );
+				}
 
                 close(cf->fd_out);
                 event_delete( ctx, cf->fd_out, EH_NONE );
                 cf->fd_out = -1;
+
+                close(cf->fd_in);
+                event_delete( ctx, cf->fd_in, EH_NONE );
+                cf->fd_in = -1;
+				cf->state = EXEC_STATE_STOPPING;
+
+				cf->pending_action_timestamp = time(0L);
 
                 d_printf("%s - Got a restart request (signal = %d)..\n", ctx->name, sig);
             }
@@ -519,18 +528,21 @@ ssize_t exec_handler(context_t *ctx, event_t event, driver_data_t *event_data )
 					// Program termination already signalled
 					if( cf->state == EXEC_STATE_STOPPING ) {
 						x_printf(ctx,"state is STOPPING.\n");
-						if( (cf->flags & (EXEC_RESPAWN|EXEC_TERMINATING)) == EXEC_RESPAWN ) {
+						if( cf->flags & (EXEC_RESPAWN|EXEC_RESTARTING) ) {
+							cf->flags &= ~(unsigned int)EXEC_RESTARTING;
 							x_printf(ctx,"setting up for respawn after %d seconds.\n",cf->restart_delay);
 							cf->state = EXEC_STATE_IDLE;
 							cf->pending_action_timestamp = time(0L);
 							//return emit( ctx, EVENT_INIT, DRIVER_DATA_NONE );
-						} else {
+						} else if( cf->flags & EXEC_TERMINATING ) {
 							x_printf(ctx,"terminating.");
 							return context_terminate( ctx );
 						}
-					} else
+					} else {
+						x_printf(ctx,"Signal before EOF.  Setting state to STOPPING\n");
 						// Process may have terminated, but you cannot assume output has drained.
 						cf->state = EXEC_STATE_STOPPING;
+					}
 				} else {
 					x_printf(ctx, "PID does not match.  Ignoring.\n");
 				}
@@ -542,13 +554,15 @@ ssize_t exec_handler(context_t *ctx, event_t event, driver_data_t *event_data )
 				time_t now = time(0L);
 
 				cf->last_tick = now;
-				if( cf->flags & EXEC_TERMINATING ) {
-					if(( now - cf->pending_action_timestamp ) > (EXEC_PROCESS_TERMINATION_TIMEOUT*2) ) {
-						d_printf("%s - REALLY Pushing it along with a SIGKILL (pid = %d)\n", ctx->name, cf->pid);
-						kill( cf->pid, SIGKILL );
-					} else if(( now - cf->pending_action_timestamp ) > EXEC_PROCESS_TERMINATION_TIMEOUT ) {
-						d_printf("%s - Pushing it along with a SIGTERM (pid = %d)\n", ctx->name, cf->pid);
-						kill( cf->pid, SIGTERM );
+				if( cf->flags & (EXEC_TERMINATING|EXEC_RESTARTING) ) {
+					if( cf->pid > 0 ) {
+						if(( now - cf->pending_action_timestamp ) > (EXEC_PROCESS_TERMINATION_TIMEOUT*2) ) {
+							d_printf("%s - REALLY Pushing it along with a SIGKILL (pid = %d)\n", ctx->name, cf->pid);
+							kill( cf->pid, SIGKILL );
+						} else if(( now - cf->pending_action_timestamp ) > EXEC_PROCESS_TERMINATION_TIMEOUT ) {
+							d_printf("%s - Pushing it along with a SIGTERM (pid = %d)\n", ctx->name, cf->pid);
+							kill( cf->pid, SIGTERM );
+						}
 					}
 				}
 
