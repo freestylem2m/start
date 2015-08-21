@@ -200,5 +200,4 @@ void logger(context_t *ctx, context_t *source, char *fmt, ...) {
 		fwrite( spec_buffer, strftime(spec_buffer,32,"%b %e %H:%M:%S: ", localtime( &spec )), 1, stderr );
 		fwrite( log_buffer, strlen(log_buffer), 1, stderr );
 	}
-		exit(0);
 }

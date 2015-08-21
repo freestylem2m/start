@@ -98,6 +98,7 @@ ssize_t coordinator_handler(context_t *ctx, event_t event, driver_data_t *event_
 				const char *log = config_get_item( ctx->config, "logger" );
 				cf->modem_driver = config_get_item( ctx->config, "modemdriver" );
 				cf->network_driver = config_get_item( ctx->config, "networkdriver" );
+
 				d_printf("logger = %s\n",log );
 
                 if( log )
@@ -120,23 +121,35 @@ ssize_t coordinator_handler(context_t *ctx, event_t event, driver_data_t *event_
 			emit( cf->logger, event, event_data );
 			break;
 
+		case EVENT_RESTART:
+			if( source == cf->unicorn ) {
+				if( event_data->event_child.action == CHILD_EVENT ) {
+					x_printf(ctx,"Unicorn driver notifying me that the modem driver has restarted.. terminating network driver\n");
+					emit( cf->network, EVENT_TERMINATE, 0L );
+				}
+			}
+			break;
+
 		case EVENT_CHILD:
 			d_printf("Got a message from a child (%s:%d).. probably starting\n", child->ctx->name, child->action);
 			if( cf->logger )
 				logger( cf->logger, ctx, "Child %s entered state %d\n", child->ctx->name, child->action );
+
 			if( child->ctx == cf->unicorn ) {
 				if( child->action == CHILD_STOPPED ) {
-					d_printf("Unicorn driver has exited.  Terminating\n");
+					x_printf(ctx,"Unicorn driver has exited.  Terminating\n");
 					cf->unicorn = 0L;
 					cf->flags &= ~(unsigned int)COORDINATOR_MODEM_UP;
 					context_terminate( ctx );
 				} else if( child->action == CHILD_EVENT ) {
-					d_printf("Got CHILD_EVENT from %s:  event = %d\n",child->ctx->name, child->status );
+					x_printf(ctx,"Got CHILD_EVENT from %s:  event = %d\n",child->ctx->name, child->status );
 					if( child->status == UNICORN_MODE_ONLINE ) {
 						cf->flags |= COORDINATOR_MODEM_ONLINE;
 						if( cf->network ) {
 							// Restart network driver maybe
 							d_printf("Modem has come online.  network driver is already running.. It should probably be restart\n");
+							emit( cf->network, EVENT_RESTART, 0L );
+							// this probably won't restart pppd automatically yet...
 						} else {
 							d_printf("Calling start_service(%s)\n",cf->network_driver);
 							cf->network = start_service( cf->network_driver, ctx->config, ctx );
@@ -160,14 +173,19 @@ ssize_t coordinator_handler(context_t *ctx, event_t event, driver_data_t *event_
 					}
 				}
 			} else if( child->ctx == cf->network ) {
-				d_printf("Notification from network driver\n");
+				x_printf(ctx,"Notification from network driver\n");
 				if( child->action == CHILD_STOPPED ) {
-					d_printf("Network drive Down\n");
+					x_printf(ctx,"Network drive Down\n");
 					cf->flags &= ~(unsigned int)COORDINATOR_NETWORK_UP;
 					cf->network = 0L;
 					// why did it stop?  killed? disconnecting? network down?
+					driver_data_t notification = { TYPE_CHILD, ctx, {} };
+					notification.event_child.ctx = ctx;
+					notification.event_child.action = CHILD_EVENT;
+					notification.event_child.status = 0;
+					emit(cf->unicorn, EVENT_RESTART, &notification );
 				} else if( child->action == CHILD_STARTED ) {
-					d_printf("Network drive UP \n");
+					x_printf(ctx,"Network drive UP \n");
 					cf->flags |= COORDINATOR_NETWORK_UP;
 				}
 			}
@@ -202,10 +220,16 @@ ssize_t coordinator_handler(context_t *ctx, event_t event, driver_data_t *event_
 				x_printf(ctx,"buffer[%d] = %d\n",data->bytes,((char *)data->data)[data->bytes]);
 				if( source == cf->unicorn ) {
 					x_printf(ctx, "Forwarding unicorn data to network driver\n");
-					emit( cf->network, event, event_data );
+					if( cf->network )
+						emit( cf->network, event, event_data );
+					else
+						x_printf(ctx, "... but network driver is down..\n");
 				} else if( source == cf->network ) {
 					x_printf(ctx, "Forwarding network data to unicorn driver\n");
-					emit( cf->unicorn, event, event_data );
+					if( cf->unicorn )
+						emit( cf->unicorn, event, event_data );
+					else
+						x_printf(ctx, "... but unicorn driver is down..\n");
 				}
 			} else {
 				d_printf("Got a DATA event from my parent... WITHOUT ANY DATA!!!\n");

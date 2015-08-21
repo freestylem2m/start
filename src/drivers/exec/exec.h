@@ -31,8 +31,9 @@ typedef struct exec_config_t {
 	int pid;
 	int fd_in;
 	int fd_out;
+	int restart_delay;
 	time_t last_tick;
-	time_t termination_timestamp;
+	time_t pending_action_timestamp;
 	u_ringbuf_t output;
 } exec_config_t;
 

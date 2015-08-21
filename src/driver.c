@@ -136,6 +136,7 @@ context_t *context_find_entry( const char *name )
 	
 	for( i = 0; i < MAX_CONTEXTS; i++ )
 		if( (context_table[i].state != CTX_UNUSED) && (!strcasecmp(context_table[i].name, name))) {
+			d_printf("context_find_entry( %s ) returning %p (index %d)\n",name, &context_table[i], i )
 			return &context_table[i];
 		}
 
@@ -195,8 +196,9 @@ int context_terminate( context_t *ctx ) {
 		ctx->driver->shutdown( ctx );
 
     context_owner_notify( ctx, CHILD_STOPPED, 0 );
+	//bzero( ctx, sizeof(context_t) );
+	ctx->state = CTX_UNUSED;
 
-	ctx->state |= CTX_TERMINATING;
 	return 0;
 }
 

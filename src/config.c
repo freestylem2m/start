@@ -272,8 +272,10 @@ int config_read( FILE *fd )
 			if ((bp = strchr( section, ']' ))) {
 				*bp = 0;
 				current = add_config_section( section );
-			} else
+			} else {
 				fprintf(stderr, "Error: malformed input at line %d\n",linenr);
+				return -1;
+			}
 		} else {
 			while(isspace(*bp))
 				bp++;
@@ -286,8 +288,10 @@ int config_read( FILE *fd )
 				if((sep = strchr(value,'\n'))||(sep = strchr(value,'\r')))
 					*sep = 0;
 				add_config_entry( current, item, value, linenr );
-			} else
+			} else {
 				fprintf(stderr,"Error: malformed input at line %d\n",linenr);
+				return -1;
+			}
 		}
 	}
 	return 0;

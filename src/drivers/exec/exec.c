@@ -65,6 +65,7 @@ int exec_init(context_t *ctx)
 		return 0;
 
 	cf->state = EXEC_STATE_IDLE;
+	cf->restart_delay = 10;
 
 	if( config_istrue( ctx->config, "respawn" ) )
 		cf->flags |= EXEC_RESPAWN;
@@ -216,7 +217,7 @@ int exec_launch( context_t *ctx, int use_tty )
 	int fd_out[2] = { 0,0 };
 
 	if( use_tty ) {
-		d_printf("Trying to open a tty!!!!\n");
+		x_printf(ctx,"Trying to open a tty!!!!\n");
 		fd_in[FD_READ] = fd_out[FD_WRITE] = open("/dev/ptmx", O_RDWR | O_NOCTTY | O_NONBLOCK );
 
 		if( fd_in[FD_READ] < 0 ) {
@@ -340,8 +341,14 @@ ssize_t exec_handler(context_t *ctx, event_t event, driver_data_t *event_data )
 				if( config_istrue( ctx->config, "tty" ) )
 					cf->flags |= EXEC_TTY_REQUIRED;
 
-				if( ! exec_launch( ctx, cf->flags & EXEC_TTY_REQUIRED ) )
+				if( ! exec_launch( ctx, cf->flags & EXEC_TTY_REQUIRED ) ) {
 					cf->state = EXEC_STATE_RUNNING;
+					// Let the parent know the process has started/restarted
+					driver_data_t notification = { TYPE_CHILD, ctx, {} };
+					notification.event_child.action = CHILD_EVENT;
+					notification.event_child.status = 0;
+					emit(ctx->owner, EVENT_RESTART, &notification);
+				}
 				else {
 					d_printf("%s - exec() failed to start process\n", ctx->name);
 					cf->state = EXEC_STATE_ERROR;
@@ -352,7 +359,7 @@ ssize_t exec_handler(context_t *ctx, event_t event, driver_data_t *event_data )
 
 		case EVENT_TERMINATE:
 			d_printf("%s - Got a termination event.  Cleaning up\n", ctx->name);
-			cf->termination_timestamp = time(0L);
+			cf->pending_action_timestamp = time(0L);
 
 			if( cf->state == EXEC_STATE_RUNNING ) {
 				event_delete( ctx, cf->fd_out, EH_NONE );
@@ -398,12 +405,16 @@ ssize_t exec_handler(context_t *ctx, event_t event, driver_data_t *event_data )
 
 		case EVENT_DATA_INCOMING:
 		case EVENT_DATA_OUTGOING:
-			if( data ) {
+			if(( cf->state == EXEC_STATE_RUNNING) && data ) {
+				
 				x_printf(ctx,"Got a DATA event from my parent...\n" );
 				ssize_t items = u_ringbuf_write( &cf->output, data->data, data->bytes );
+				x_printf(ctx,"write %d bytes to ring buffer\n", items);
 
-				if( !u_ringbuf_empty( &cf->output ) )
+				if( !u_ringbuf_empty( &cf->output ) ) {
+					x_printf( ctx, "Adding WRITE event to FD_out\n");
 					event_add( ctx, cf->fd_out, EH_WRITE );
+				}
 
 				// items = number of items queued.. or -1 for error.
 				x_printf(ctx,"EVENT_DATA - adding %d bytes to ring buffer\n",items);
@@ -468,11 +479,12 @@ ssize_t exec_handler(context_t *ctx, event_t event, driver_data_t *event_data )
 							// program termination already signalled
 							if( (cf->flags & (EXEC_RESPAWN|EXEC_TERMINATING)) == EXEC_RESPAWN ) {
 								cf->state = EXEC_STATE_IDLE;
-								return emit( ctx, EVENT_INIT, DRIVER_DATA_NONE );
+								cf->pending_action_timestamp = time(0L);
+								//return emit( ctx, EVENT_INIT, DRIVER_DATA_NONE );
 							} else
-								context_terminate( ctx );
-						}
-						cf->state = EXEC_STATE_STOPPING;
+								return context_terminate( ctx );
+						} else
+							cf->state = EXEC_STATE_STOPPING;
 					}
 				}
 
@@ -506,14 +518,19 @@ ssize_t exec_handler(context_t *ctx, event_t event, driver_data_t *event_data )
 					cf->fd_out = -1;
 					// Program termination already signalled
 					if( cf->state == EXEC_STATE_STOPPING ) {
+						x_printf(ctx,"state is STOPPING.\n");
 						if( (cf->flags & (EXEC_RESPAWN|EXEC_TERMINATING)) == EXEC_RESPAWN ) {
+							x_printf(ctx,"setting up for respawn after %d seconds.\n",cf->restart_delay);
 							cf->state = EXEC_STATE_IDLE;
-							return emit( ctx, EVENT_INIT, DRIVER_DATA_NONE );
-						} else
+							cf->pending_action_timestamp = time(0L);
+							//return emit( ctx, EVENT_INIT, DRIVER_DATA_NONE );
+						} else {
+							x_printf(ctx,"terminating.");
 							return context_terminate( ctx );
-					}
-					// Process may have terminated, but you cannot assume output has drained.
-					cf->state = EXEC_STATE_STOPPING;
+						}
+					} else
+						// Process may have terminated, but you cannot assume output has drained.
+						cf->state = EXEC_STATE_STOPPING;
 				} else {
 					x_printf(ctx, "PID does not match.  Ignoring.\n");
 				}
@@ -522,15 +539,27 @@ ssize_t exec_handler(context_t *ctx, event_t event, driver_data_t *event_data )
 
 		case EVENT_TICK:
 			{
-				time( & cf->last_tick );
+				time_t now = time(0L);
+
+				cf->last_tick = now;
 				if( cf->flags & EXEC_TERMINATING ) {
-					if(( time(0L) - cf->termination_timestamp ) > (EXEC_PROCESS_TERMINATION_TIMEOUT*2) ) {
-						d_printf("%s - REALLY Pushing it along with a SIGKILL\n", ctx->name);
+					if(( now - cf->pending_action_timestamp ) > (EXEC_PROCESS_TERMINATION_TIMEOUT*2) ) {
+						d_printf("%s - REALLY Pushing it along with a SIGKILL (pid = %d)\n", ctx->name, cf->pid);
 						kill( cf->pid, SIGKILL );
-					} else if(( time(0L) - cf->termination_timestamp ) > EXEC_PROCESS_TERMINATION_TIMEOUT ) {
-						d_printf("%s - Pushing it along with a SIGTERM\n", ctx->name);
+					} else if(( now - cf->pending_action_timestamp ) > EXEC_PROCESS_TERMINATION_TIMEOUT ) {
+						d_printf("%s - Pushing it along with a SIGTERM (pid = %d)\n", ctx->name, cf->pid);
 						kill( cf->pid, SIGTERM );
 					}
+				}
+
+				if( cf->state == EXEC_STATE_IDLE ) {
+					x_printf(ctx,"process state is idle.  process is not running.\n");
+					x_printf(ctx,"timer = %ld seconds\n", now - cf->pending_action_timestamp );
+				}
+
+				if( (cf->state == EXEC_STATE_IDLE) && (( now - cf->pending_action_timestamp ) > cf->restart_delay )) {
+					x_printf(ctx,"Restart delay expired.  Restarting\n");
+					emit( ctx, EVENT_INIT, DRIVER_DATA_NONE );
 				}
 			}
 			break;

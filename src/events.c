@@ -317,8 +317,13 @@ int handle_pending_signals( void )
 		if( ( event_table[i].flags & EH_SIGNAL ) == EH_SIGNAL && sigismember( &temp_signals, event_table[i].fd )) {
 			driver_data_t data = { TYPE_SIGNAL, 0L, {} };
 			data.event_signal = event_table[i].fd;
-			fprintf(stderr," Sending signal %d to driver %s\n", event_table[i].fd, event_table[i].ctx->name );
-			event_table[i].ctx->driver->emit( event_table[i].ctx, EVENT_SIGNAL, &data );
+			d_printf(" Sending signal %d to driver %s\n", event_table[i].fd, event_table[i].ctx->name );
+			if( event_table[i].ctx->state != CTX_UNUSED )
+				event_table[i].ctx->driver->emit( event_table[i].ctx, EVENT_SIGNAL, &data );
+			else {
+				d_printf("Got a signal for an unused context.. this is an error of course\n");
+				event_table[i].flags = EH_UNUSED;
+			}
 		}
 	}
 
@@ -451,7 +456,7 @@ ssize_t emit( context_t *ctx, event_t event, driver_data_t *event_data )
 	if( ctx && (ctx->state != CTX_UNUSED) && ctx->driver )
 		return ctx->driver->emit( ctx, event,event_data ? event_data : DRIVER_DATA_NONE );
 	else
-		d_printf("emit() called for bad context (%p -> %s)\n",ctx,ctx->name );
+		d_printf("emit(%s->%s) called for bad context %p (owner = %s)\n",event_data?event_data->source->name:"unknown",ctx->name,ctx,ctx->owner?ctx->owner->name:"NA" );
 
 	return -1;
 }

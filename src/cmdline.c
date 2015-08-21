@@ -41,7 +41,7 @@
 //
 
 const char *programname = 0L;
-char *config_file = (char *) "netmanage.conf";
+char *config_file = (char *) "/flash/netmanage.conf";
 char *msg_filter = 0L;
 int  debug = 0;
 int  debug_quiet = 0;

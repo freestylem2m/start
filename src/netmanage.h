@@ -11,7 +11,7 @@
 #include <string.h>
 
 #define	d_printf(...)	{ if (debug >= debug_quiet) { char *pbuf = alloca(DEBUG_BUF); snprintf(pbuf,DEBUG_BUF,"%s:%s:%d",__FILE__,__func__,__LINE__); if( !msg_filter || strstr(pbuf, msg_filter) ) {fprintf(stderr,"%s: ",pbuf); fprintf(stderr,__VA_ARGS__); fflush(stderr); } } }
-#define	x_printf(x,...)	{ if (debug >= debug_quiet) { char *pbuf = alloca(DEBUG_BUF); snprintf(pbuf,DEBUG_BUF,"%s:%s:%d:<%s>",__FILE__,__func__,__LINE__,x->name); if( !msg_filter || strstr(pbuf, msg_filter) ) {fprintf(stderr,"%s: ",pbuf); fprintf(stderr,__VA_ARGS__); fflush(stderr); } } }
+#define	x_printf(x,...)	{ if (debug >= debug_quiet) { char *pbuf = alloca(DEBUG_BUF); snprintf(pbuf,DEBUG_BUF,"%s:%s:%d:<%s%s%s>",__FILE__,__func__,__LINE__,x->owner?x->owner->name:"",x->owner?"->":"",x->name); if( !msg_filter || strstr(pbuf, msg_filter) ) {fprintf(stderr,"%s: ",pbuf); fprintf(stderr,__VA_ARGS__); fflush(stderr); } } }
 #else
 #define	d_printf(...)   {}
 #define x_printf(...)   {}

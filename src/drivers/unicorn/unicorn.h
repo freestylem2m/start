@@ -70,7 +70,7 @@ typedef enum cmdState_e
     CMD_ST_ERROR,
     CMD_ST_INPROGRESS,
     CMD_ST_ONLINE,
-
+    CMD_ST_UNKNOWN = 0xFFFF
 } cmdState_t;
 
 typedef struct frmHdr_s
@@ -110,13 +110,13 @@ typedef enum {
 typedef enum {
 	UNICORN_NONE = 0,
 	UNICORN_ONLINE = 1,
-	UNICORN_EXPECTING_DATA = 4,
-	UNICORN_CLOSING_CONNECTION = 8,
-	UNICORD_UNEXPECTED_EXIT = 16,
-	UNICORN_WAITING_FOR_CONNECT = 32,
-	UNICORN_RESTARTING = 64,
+	UNICORN_EXPECTING_DATA = 2,
+	UNICORN_CLOSING_CONNECTION = 4,
+	UNICORD_UNEXPECTED_EXIT = 8,
+	UNICORN_WAITING_FOR_CONNECT = 16,
+	UNICORN_RESTARTING = 32,
+	UNICORN_DISABLE = 64,
 	UNICORN_TERMINATING = 128,
-
 } unicorn_flags_t;
 
 typedef struct unicorn_config_t {
@@ -128,6 +128,8 @@ typedef struct unicorn_config_t {
 	//time_t last_tick;
 	time_t pending_action_timeout;
 	time_t last_state_timestamp;
+
+	const char *control_file;
 
 	frmHdr_t  msgHdr;
 	size_t   data_length;

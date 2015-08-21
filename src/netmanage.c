@@ -113,7 +113,10 @@ int main(int ac, char *av[])
 	 * dump_cmdline();
 	 */
 
-	config_read_file(config_file);
+	if( config_read_file(config_file) < 0) {
+		fprintf(stderr,"Unable to read config file %s\n",config_file);
+		exit(-1);
+	}
 
 	const char *default_service = config_item( "global", "default" );
 	//d_printf("default_service = %s\n", default_service);
@@ -133,4 +136,3 @@ int main(int ac, char *av[])
 	config_cleanup();
 	return 1;
 }
-
