@@ -84,6 +84,8 @@ typedef struct frmHdr_s
 
 // If modem driver takes more than this many seconds, kill it.
 #define UNICORN_PROCESS_TERMINATION_TIMEOUT 10
+#define UNICORN_CONNECT_TIMEOUT 120
+#define UNICORN_RESTART_DELAY   120
 
 // After reading a header, if the data frame takes longer than this many seconds
 // reset.
@@ -111,7 +113,10 @@ typedef enum {
 	UNICORN_EXPECTING_DATA = 4,
 	UNICORN_CLOSING_CONNECTION = 8,
 	UNICORD_UNEXPECTED_EXIT = 16,
-	UNICORN_TERMINATING = 32,
+	UNICORN_WAITING_FOR_CONNECT = 32,
+	UNICORN_RESTARTING = 64,
+	UNICORN_TERMINATING = 128,
+
 } unicorn_flags_t;
 
 typedef struct unicorn_config_t {
@@ -121,7 +126,7 @@ typedef struct unicorn_config_t {
 	u_ringbuf_t input;
 	time_t last_message;
 	//time_t last_tick;
-	time_t termination_timestamp;
+	time_t pending_action_timeout;
 	time_t last_state_timestamp;
 
 	frmHdr_t  msgHdr;

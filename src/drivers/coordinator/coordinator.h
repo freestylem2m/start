@@ -19,17 +19,25 @@ typedef enum {
 typedef enum {
 	COORDINATOR_NONE        = 0,
 	COORDINATOR_TERMINATING = 1,
+	COORDINATOR_NETWORK_UP  = 2,
+	COORDINATOR_MODEM_UP    = 4,
+	COORDINATOR_MODEM_ONLINE = 8,
 } coordinator_flags_t;
 
 typedef struct coordinator_config_t {
 	coordinator_state_t state;
 	coordinator_flags_t flags;
+
+	const char *modem_driver;
+	const char *network_driver;
+
 	time_t last_tick;
 	time_t termination_timestamp;
+	time_t modem_timestamp;
     context_t *logger;
     context_t *unicorn;
-    context_t *interface;
-    context_t *vpn;
+    context_t *network;
+    //context_t *vpn;
 } coordinator_config_t;
 
 extern int coordinator_init(context_t *);

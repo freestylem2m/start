@@ -1,3 +1,6 @@
+#ifndef NDEBUG
+//#define NDEBUG
+#endif
 /******************************************************************************************************
 *
 * Freestyle Technology Pty Ltd
@@ -36,6 +39,7 @@
 #include <errno.h>
 
 #include "ringbuf.h"
+#include "netmanage.h"
 
 //
 // Various ringbuffer related functions.
@@ -86,7 +90,9 @@ ssize_t u_ringbuf_write_fd( u_ringbuf_t *rb, int fd)
 		if( ( fixed_read + avail ) > RINGBUFFER_MAX )
 			avail = RINGBUFFER_MAX - fixed_read;
 
+		d_printf("write(%d,%p,%d)\n",fd,rb->buffer + fixed_read, avail );
 		ssize_t written = write( fd, rb->buffer + fixed_read, avail );
+		d_printf("bytes written = %d\n", written);
 
 		if( written > 0 ) {
 			bytes += written;
@@ -157,6 +163,7 @@ ssize_t u_ringbuf_write( u_ringbuf_t *rb, void *buffer, size_t length)
 		memcpy( rb->buffer + fixed_write, buffer, eb );
 		rb->write_ptr += eb;
 		buffer += eb;
+		bytes  += eb;
 		length -= eb;
 	}
 	return (ssize_t)bytes;

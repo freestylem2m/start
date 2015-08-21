@@ -60,9 +60,13 @@ char *event_map[] = {
 	"EVENT_TICK",
 	"EVENT_DATA_INCOMING",
 	"EVENT_DATA_OUTGOING",
+	"EVENT_RESTART",
 	"EVENT_TERMINATE",
 	"EVENT_CHILD",
+	"EVENT_RESTARTING",
 	"EVENT_MAX",
+	"EVENT_STATE",
+	"EVENT_LOGGING",
 	0L
 };
 #endif
@@ -138,7 +142,7 @@ int event_subsystem_init(void)
 	return 0;
 }
 
-event_request_t *event_find( const context_t *ctx, const int fd, const event_handler_flags_t flags )
+event_request_t *event_find( const context_t *ctx, const int fd, const unsigned int flags )
 {
 	unsigned int event_type = flags & EH_SPECIAL;
 
@@ -163,7 +167,7 @@ event_request_t *event_find_free_slot( void )
     return 0L;
 }
 
-event_request_t *event_set( const context_t *ctx, const int fd, const event_handler_flags_t flags )
+event_request_t *event_set( const context_t *ctx, const int fd, const unsigned int flags )
 {
 	event_request_t *entry = event_find( ctx, fd, flags );
 
@@ -174,7 +178,7 @@ event_request_t *event_set( const context_t *ctx, const int fd, const event_hand
 	return entry;
 }
 
-event_request_t *event_add( context_t *ctx, const int fd, event_handler_flags_t flags )
+event_request_t *event_add( context_t *ctx, const int fd, unsigned int flags )
 {
 	event_request_t *entry = event_find( ctx,  fd, flags );
 
@@ -185,7 +189,7 @@ event_request_t *event_add( context_t *ctx, const int fd, event_handler_flags_t 
         return 0L;
 
 	entry->fd = fd;
-	entry->flags = flags;
+	entry->flags |= flags;
 	entry->ctx = ctx;
 
 	if( flags & EH_SIGNAL ) {
@@ -210,8 +214,13 @@ void event_delete( context_t *ctx, int fd, event_handler_flags_t flags )
 	event_request_t *entry = event_find( ctx, fd, flags );
 
 	if( entry ) {
-		entry->flags = EH_UNUSED;
-		entry->fd = -1;
+		if( flags )
+			entry->flags &= ~(unsigned int)flags;
+		else
+			entry->flags = EH_UNUSED;
+
+		if( entry->flags == EH_UNUSED )
+			entry->fd = -1;
 	}
 }
 
@@ -229,12 +238,11 @@ int create_event_set( fd_set *readfds, fd_set *writefds, fd_set *exceptfds, int 
 	for( i = 0; i < MAX_EVENT_REQUESTS; i++ )
 	{
 		if( event_table[i].flags ) {
-			//d_printf(" ** Adding registered events for %s\n",event_table[i].ctx->name );
-
 			if( event_table[i].flags & EH_SPECIAL ) {
 				if( event_table[i].flags & EH_SIGNAL )
 					count ++;
 			} else {
+                //d_printf(" ** Adding registered events for %s (fd = %d)\n",event_table[i].ctx->name, event_table[i].fd);
 				if( event_table[i].flags & EH_READ )
 					FD_SET(event_table[i].fd, readfds), count ++;
 				if( event_table[i].flags & EH_WRITE )

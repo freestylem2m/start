@@ -51,7 +51,7 @@ int unicorn_init(context_t * ctx)
 	if (0 == (cf = (unicorn_config_t *) calloc( sizeof( unicorn_config_t ) , 1 )))
 		return 0;
 
-	cf->last_message = time(0L);
+	cf->pending_action_timeout = cf->last_message = time(0L);
 	cf->driver_state = 0xFFFF;
 
 	u_ringbuf_init(&cf->input);
@@ -81,6 +81,9 @@ ssize_t send_unicorn_command( context_t *ctx, cmdHost_t cmd, cmdState_t state, u
 	if( !frame )
 		return -1;
 
+	if (length > 1024) {
+		x_printf(ctx,"\n *\n * WARNING: Buffer is >1024 bytes\n *\n");
+	}
 	frame->magicNo = MAGIC_NUMBER;
 	frame->cmd = cmd;
 	frame->state = state;
@@ -103,8 +106,22 @@ ssize_t process_unicorn_data( context_t *ctx )
 	size_t ready = u_ringbuf_ready( &cf->input );
 	d_printf("Buffer currently has %d bytes\n",ready);
 
+	if( !ready )
+		return rc;
+
 	if( cf->flags & UNICORN_EXPECTING_DATA ) {
 		d_printf("Expecting %d bytes of data.. buffer contains %d\n", cf->msgHdr.length, ready );
+		if( ready >= cf->msgHdr.length ) {
+			char *data_buffer = alloca( cf->msgHdr.length );
+			u_ringbuf_read( &cf->input, data_buffer, cf->msgHdr.length );
+			driver_data_t notification = { TYPE_DATA, ctx, {} };
+			notification.event_data.bytes = cf->msgHdr.length;
+			notification.event_data.data = data_buffer;
+			x_printf(ctx,"forwarding unicorn data payload to parent (%d bytes)\n", cf->msgHdr.length );
+			emit( ctx->owner, EVENT_DATA_INCOMING, &notification );
+			cf->flags &= ~(unsigned int)UNICORN_EXPECTING_DATA;
+			return 0;
+		}
 	} else {
 		d_printf("Check if there is a header in the buffer\n");
 		if( ready >= sizeof( frmHdr_t ) ) {
@@ -121,66 +138,69 @@ ssize_t process_unicorn_data( context_t *ctx )
 				return 0;
 			}
 
-			if( cf->msgHdr.length ) {
-				cf->flags |= UNICORN_EXPECTING_DATA;
-				cf->data_length = cf->msgHdr.length;
-				cf->last_message = time(0L);
-			} else {
-				// Record the time, so I don't send unnecessary state requests
-				cf->last_message = time(0L);
-				// handle notifications with no data
-				printf("Got CMD   %d\n",cf->msgHdr.cmd );
-				printf("Got STATE %d\n",cf->msgHdr.state );
+			// Record the time, so I don't send unnecessary state requests
+			cf->last_message = time(0L);
+			// handle notifications with no data
+			d_printf("Got CMD   %d\n",cf->msgHdr.cmd );
+			d_printf("Got STATE %d\n",cf->msgHdr.state );
 
-				switch( cf->msgHdr.cmd ) {
-					case CMD_KEEPALIVE:
-					case CMD_READY:
-					case CMD_STATE:
-						if( cf->msgHdr.state != cf->driver_state ) {
-							cf->last_state_timestamp = cf->last_message;
-							d_printf("Handling state change. cf->flags = %x (terminating %s)\n", cf->flags, cf->flags&UNICORN_TERMINATING?"true":"false");
-							if( cf->msgHdr.state == CMD_ST_ONLINE || cf->msgHdr.state == CMD_ST_ONLINE  ) {
-								d_printf("Notifying parent that the network state has changed to %s\n",cf->msgHdr.state == CMD_ST_ONLINE ? "online":"offline");
-								context_owner_notify( ctx, CHILD_EVENT, cf->msgHdr.state == CMD_ST_ONLINE ? UNICORN_MODE_ONLINE : UNICORN_MODE_OFFLINE );
-							}
-							if( cf->flags & UNICORN_TERMINATING ) {
-								d_printf("State = TERMINATING, need to shutdown driver\n");
-								if( cf->msgHdr.state == CMD_ST_OFFLINE ) {
-									d_printf("modem is offline. shutting down driver\n");
-									send_unicorn_command( ctx, CMD_SHUTDOWN, CMD_ST_OFFLINE, 0, 0L );
+			switch( cf->msgHdr.cmd ) {
+				case CMD_KEEPALIVE:
+				case CMD_READY:
+				case CMD_STATE:
+					if( cf->msgHdr.state != cf->driver_state ) {
+						cf->last_state_timestamp = cf->last_message;
+						d_printf("Handling state change. cf->flags = %x (terminating %s)\n", cf->flags, cf->flags&UNICORN_TERMINATING?"true":"false");
+						if( cf->msgHdr.state == CMD_ST_ONLINE || cf->msgHdr.state == CMD_ST_ONLINE  ) {
+							d_printf("Notifying parent that the network state has changed to %s\n",cf->msgHdr.state == CMD_ST_ONLINE ? "online":"offline");
+							context_owner_notify( ctx, CHILD_EVENT, cf->msgHdr.state == CMD_ST_ONLINE ? UNICORN_MODE_ONLINE : UNICORN_MODE_OFFLINE );
+						}
+						if( cf->flags & UNICORN_TERMINATING ) {
+							d_printf("State = TERMINATING, need to shutdown driver\n");
+							if( cf->msgHdr.state == CMD_ST_OFFLINE ) {
+								d_printf("modem is offline. shutting down driver\n");
+								send_unicorn_command( ctx, CMD_SHUTDOWN, CMD_ST_OFFLINE, 0, 0L );
 #if 0
-									if( cf->modem ) {
-										emit(cf->modem, EVENT_TERMINATE, 0L);
-										context_terminate( ctx );
-									}
+								if( cf->modem ) {
+									emit(cf->modem, EVENT_TERMINATE, 0L);
+									context_terminate( ctx );
+								}
 #endif
-								} else if( cf->msgHdr.state == CMD_ST_INPROGRESS ) {
-									send_unicorn_command( ctx, CMD_DISCONNECT, CMD_ST_OFFLINE, 0, 0L );
-								}
-									
-							} else {
-								if( cf->msgHdr.state == CMD_ST_OFFLINE ) {
-									d_printf("Sending CONNECT command\n");
-									send_unicorn_command(ctx, CMD_CONNECT, CMD_ST_ONLINE, 0, 0 );
-								}
+							} else if( cf->msgHdr.state == CMD_ST_INPROGRESS ) {
+								send_unicorn_command( ctx, CMD_DISCONNECT, CMD_ST_OFFLINE, 0, 0L );
 							}
-							cf->driver_state = cf->msgHdr.state;
-							break;
-
-							default:
-							d_printf("Not ready to deal with cmd %d\n",cf->msgHdr.cmd);
 
 						} else {
-							d_printf("No state change.. doing nothing..\n");
+							if( cf->msgHdr.state == CMD_ST_OFFLINE ) {
+								d_printf("Sending CONNECT command (Setting WAITING_FOR_CONNECT FLAG)\n");
+								cf->flags |= UNICORN_WAITING_FOR_CONNECT;
+								//cf->termination_timestamp = cf->last_state_timestamp;
+								send_unicorn_command(ctx, CMD_CONNECT, CMD_ST_ONLINE, 0, 0 );
+							} else if( cf->msgHdr.state == CMD_ST_ONLINE ) {
+								x_printf(ctx,"State is Online - resetting WAITING_FOR_CONNECT\n");
+								cf->flags &= ~(unsigned int) UNICORN_WAITING_FOR_CONNECT;
+							}
 						}
+						cf->driver_state = cf->msgHdr.state;
+					} else {
+						d_printf("No state change.. doing nothing..\n");
+					}
+					break;
+				case CMD_DATA:
+					cf->flags |= UNICORN_EXPECTING_DATA;
+					cf->data_length = cf->msgHdr.length;
+					cf->last_message = time(0L);
+					break;
+				default:
+					d_printf("Not ready to deal with cmd %d\n",cf->msgHdr.cmd);
+					break;
 
-				}
-
-				// indicate that there *was* something in the buffer and I should check for more
-				// This is specifically to avoid the issue caused when a single read received mulitple
-				// separate command frames
-				rc = 0;
 			}
+
+			// indicate that there *was* something in the buffer and I should check for more
+			// This is specifically to avoid the issue caused when a single read received mulitple
+			// separate command frames
+			rc = 0;
 		}
 	}
 
@@ -195,9 +215,10 @@ ssize_t unicorn_handler(context_t *ctx, event_t event, driver_data_t *event_data
 	event_child_t *child = 0L;
 
 	unicorn_config_t *cf = (unicorn_config_t *) ctx->data;
-	d_printf(" - cf->flags = %x (terminating %s)\n", cf->flags, cf->flags&UNICORN_TERMINATING?"true":"false");
+	//d_printf(" - cf->flags = %x (terminating %s)\n", cf->flags, cf->flags&UNICORN_TERMINATING?"true":"false");
 
-	//d_printf("event = \"%s\" (%d)\n", event_map[event], event);
+	if( event != EVENT_TICK )
+		x_printf(ctx,"event = \"%s\" (%d)\n", event_map[event], event);
 
 	//d_printf("event_data = %p\n", event_data);
 	//d_printf("event_data->type = %s\n", driver_data_type_map[event_data->type]);
@@ -219,33 +240,35 @@ ssize_t unicorn_handler(context_t *ctx, event_t event, driver_data_t *event_data
 
 	switch (event) {
 	case EVENT_INIT:
-		d_printf("UNICORN INIT event triggered\n");
+		{
+			d_printf("UNICORN INIT event triggered\n");
 
-		event_add( ctx, SIGQUIT, EH_SIGNAL );
-		event_add( ctx, SIGTERM, EH_SIGNAL );
-		event_add( ctx, 0, EH_WANT_TICK );
+			event_add( ctx, SIGQUIT, EH_SIGNAL );
+			event_add( ctx, SIGTERM, EH_SIGNAL );
+			event_add( ctx, 0, EH_WANT_TICK );
 
-		const char *endpoint = config_get_item( ctx->config, "endpoint" );
-		if( endpoint )
-			cf->modem = start_service( endpoint, ctx->config, ctx );
+			const char *endpoint = config_get_item( ctx->config, "endpoint" );
+			if( endpoint )
+				cf->modem = start_service( endpoint, ctx->config, ctx );
 
 #if 0
-		if( ctx->owner ) {
-			driver_data_t child_event = { TYPE_CHILD, ctx, {} };
-			child_event.event_child.ctx = ctx;
-			child_event.event_child.status = 0;
-			emit( ctx->owner, EVENT_CHILD, &child_event );
-		}
+			if( ctx->owner ) {
+				driver_data_t child_event = { TYPE_CHILD, ctx, {} };
+				child_event.event_child.ctx = ctx;
+				child_event.event_child.status = 0;
+				emit( ctx->owner, EVENT_CHILD, &child_event );
+			}
 #endif
 
-		cf->state = UNICORN_STATE_RUNNING;
+			cf->state = UNICORN_STATE_IDLE;
+		}
 		break;
 
 	case EVENT_TERMINATE:
 		{
 			d_printf("Got a termination event.  Cleaning up\n");
 
-			cf->termination_timestamp = time(0L);
+			cf->pending_action_timeout = time(0L);
 
 			cf->flags |= UNICORN_TERMINATING; // In process of terminating the modem driver
 			cf->state  = UNICORN_STATE_STOPPING; // In process of terminating self
@@ -268,19 +291,25 @@ ssize_t unicorn_handler(context_t *ctx, event_t event, driver_data_t *event_data
 		break;
 
 	case EVENT_CHILD:
-		d_printf("Got a message from a child (%s:%d).. probably starting\n", child->ctx->name, child->action);
+		x_printf(ctx,"Got a message from a child (%s:%d).. probably starting\n", child->ctx->name, child->action);
 		if ( child->ctx == cf->modem ) {
-			if( child->action == CHILD_STARTING )
+			if( child->action == CHILD_STARTING ) {
 				cf->driver_state = 0xFFFF;
+				cf->state = UNICORN_STATE_RUNNING;
+				cf->flags &= ~(unsigned int) UNICORN_RESTARTING;
+			}
 
 			if ( child->action == CHILD_STOPPED ) {
-				d_printf("Modem driver terminated - restart or terminate\n");
+				x_printf(ctx,"Modem driver terminated - restart or terminate\n");
 				// modem driver terminated.  Restart or exit.
+				cf->state = UNICORN_STATE_IDLE;
 				if ( cf->flags & UNICORN_TERMINATING ) {
 					d_printf("Terminating immediately\n");
 					context_terminate( ctx );
 				} else {
-					d_printf("Need to restart modem driver\n");
+					x_printf(ctx,"Need to restart modem driver\n");
+					cf->flags |= UNICORN_RESTARTING;
+					cf->pending_action_timeout = time(0L);
 				}
 			}
 		}
@@ -315,6 +344,10 @@ ssize_t unicorn_handler(context_t *ctx, event_t event, driver_data_t *event_data
 				}
 
 				return (ssize_t) offset;
+			} else {
+				x_printf(ctx, "Got upstream data. sending to modem driver\n");
+				send_unicorn_command( ctx, CMD_DATA, CMD_ST_ONLINE, data->bytes,data->data);
+				return (ssize_t) data->bytes;
 			}
 		} else {
 			d_printf("Got a DATA event from my parent... WITHOUT ANY DATA!!!\n");
@@ -405,15 +438,34 @@ ssize_t unicorn_handler(context_t *ctx, event_t event, driver_data_t *event_data
 				send_unicorn_command( ctx, CMD_STATE, CMD_ST_OFFLINE, 0, 0L );
 			}
 
-			if( (cf->flags & UNICORN_TERMINATING) && ((now - cf->termination_timestamp) > UNICORN_PROCESS_TERMINATION_TIMEOUT)) {
+			if( (cf->flags & UNICORN_RESTARTING) && ((now - cf->pending_action_timeout) > UNICORN_RESTART_DELAY )) {
+				x_printf(ctx,"Restart delay expired - restarting modem driver\n");
+				cf->pending_action_timeout = time(0L);
+				const char *endpoint = config_get_item( ctx->config, "endpoint" );
+				if( endpoint )
+					cf->modem = start_service( endpoint, ctx->config, ctx );
+			}
+
+			if( (cf->flags & UNICORN_WAITING_FOR_CONNECT) && ((now - cf->pending_action_timeout) > UNICORN_CONNECT_TIMEOUT )) {
+				x_printf(ctx,"Timeout during connect - terminating modem driver\n");
+				cf->flags &= ~(unsigned int) UNICORN_WAITING_FOR_CONNECT;
+				cf->state = UNICORN_STATE_IDLE;
+				if( cf->modem )
+					context_terminate( cf->modem );
+			}
+
+			if( (cf->flags & UNICORN_TERMINATING) && ((now - cf->pending_action_timeout) > UNICORN_PROCESS_TERMINATION_TIMEOUT)) {
 				d_printf("termination timeout - killing the modem driver with prejudice\n");
-				context_terminate( cf->modem );
+				cf->state = UNICORN_STATE_IDLE;
+				if( cf->modem )
+					context_terminate( cf->modem );
 				context_terminate( ctx );
 			}
 
 			// Special case.. If I am expecting a data frame, and it takes too long to arrive,
 			// reset state.
 			if( (cf->flags & UNICORN_EXPECTING_DATA) && ((now - cf->last_message) > FRAME_TIMEOUT)) {
+				x_printf(ctx,"FRAME TIMEOUT - resetting input buffer\n");
 				u_ringbuf_init( &cf->input );
 				cf->flags &= ~(unsigned int)UNICORN_EXPECTING_DATA;
 			}

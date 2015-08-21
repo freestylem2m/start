@@ -22,6 +22,7 @@ typedef enum {
 	EXEC_RESPAWN = 1,
 	EXEC_RESTARTING = 2,
 	EXEC_TERMINATING = 4,
+    EXEC_TTY_REQUIRED = 8,
 } exec_flags_t;
 
 typedef struct exec_config_t {

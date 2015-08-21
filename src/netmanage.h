@@ -6,9 +6,15 @@
 #include "events.h"
 
 #ifndef NDEBUG
-#define	d_printf(...)	{ if (debug >= debug_quiet) { fprintf(stderr,"%s:%s:%d ",__FILE__,__func__,__LINE__); fprintf(stderr,__VA_ARGS__); fflush(stderr); } }
+#define DEBUG_BUF 1024
+#include <alloca.h>
+#include <string.h>
+
+#define	d_printf(...)	{ if (debug >= debug_quiet) { char *pbuf = alloca(DEBUG_BUF); snprintf(pbuf,DEBUG_BUF,"%s:%s:%d",__FILE__,__func__,__LINE__); if( !msg_filter || strstr(pbuf, msg_filter) ) {fprintf(stderr,"%s: ",pbuf); fprintf(stderr,__VA_ARGS__); fflush(stderr); } } }
+#define	x_printf(x,...)	{ if (debug >= debug_quiet) { char *pbuf = alloca(DEBUG_BUF); snprintf(pbuf,DEBUG_BUF,"%s:%s:%d:<%s>",__FILE__,__func__,__LINE__,x->name); if( !msg_filter || strstr(pbuf, msg_filter) ) {fprintf(stderr,"%s: ",pbuf); fprintf(stderr,__VA_ARGS__); fflush(stderr); } } }
 #else
 #define	d_printf(...)   {}
+#define x_printf(...)   {}
 #endif
 
 #ifndef UNUSED

@@ -41,10 +41,12 @@ context_t *safe_start_service( const char *name, const config_t *parent_config, 
 {
 	context_t *ctx = 0L;
 
-	if( find_driver( name ) )
-		return start_driver( name, parent_config, owner );
+	if( find_driver( name ) ) {
+		d_printf("find_driver(%s) succeeded, launching driver\n", name );
+		return start_driver( name, parent_config->section, parent_config, owner );
+	}
 
-	//d_printf("Checking for service config by the name of %s\n",name );
+	d_printf("Checking for service config by the name of %s\n",name );
 
 	const config_t *service_config = config_get_section( name );
 
@@ -53,21 +55,24 @@ context_t *safe_start_service( const char *name, const config_t *parent_config, 
         exit (0);
     }
 
-	//d_printf("get_section returned %s\n",service_config?service_config->section:"(no name)" );
+	d_printf("get_section returned %s\n",service_config?service_config->section:"(no name)" );
 
 	if( service_config ) {
 		const char     **driver_list = config_get_itemlist(service_config, "driver");
-		//d_printf("driver_list = %p\n", driver_list);
+		d_printf("driver_list = %p\n", driver_list);
 		while( driver_list && *driver_list ) {
-			//d_printf("starting driver %s\n",*driver_list);
+			d_printf("starting driver %s\n",*driver_list);
 			const char     *driver_name = *driver_list++;
 			if( driver_name ) {
-				//d_printf("Driver = %s\n", driver_name);
+				d_printf("Driver = %s\n", driver_name);
 
-				//d_printf("Calling \"start_context\" with driver name %s\n",driver_name);
+				d_printf("Calling \"start_context\" with driver name %s\n",driver_name);
 				// note the pointless recursion... should stop encouraging nested configs
-				ctx = safe_start_service( driver_name, service_config, owner, depth +1 );
-				//d_printf("start_context( %s ) return %p\n",driver_name, ctx);
+				/* START A DRIVER, NOT A SERVICE */
+				//ctx = safe_start_service( driver_name, service_config, owner, depth +1 );
+				//ctx = start_driver( driver_name, name, parent_config, owner );
+				ctx = start_driver( driver_name, name, service_config, owner );
+				d_printf("start_context( %s ) return %p\n",driver_name, ctx);
 
 				if( ctx )
                     continue;
@@ -88,6 +93,7 @@ context_t *safe_start_service( const char *name, const config_t *parent_config, 
 
 context_t *start_service( const char *name, const config_t *parent_config, context_t *owner )
 {
+	d_printf("start_service(%s) called\n", name );
     return safe_start_service( name, parent_config, owner, 0 );
 }
 

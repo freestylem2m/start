@@ -26,6 +26,7 @@ typedef struct logger_config_t {
 	logger_state_t state;
 	logger_flags_t flags;
 	time_t last_tick;
+	const char *log_driver;
 	context_t *logger;
 	int    log_fd;
 } logger_config_t;

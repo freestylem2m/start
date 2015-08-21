@@ -39,7 +39,10 @@
 // Globals containing result of command line parsing..
 // ********************************************************************************
 //
+
+const char *programname = 0L;
 char *config_file = (char *) "netmanage.conf";
+char *msg_filter = 0L;
 int  debug = 0;
 int  debug_quiet = 0;
 
@@ -121,6 +124,9 @@ cmdarg args[] = {
 	{ "c|config",  A_STRING, ._vec.s_ptr = &config_file,"--config=file      Specify configuration file." },
 	{ "d|debug", A_FLAG,   ._vec.f_ptr = { 0, &debug }, "--debug            Enable verbose logging" },
 	{ "q|quiet", A_FLAG,   ._vec.f_ptr = { 0, &debug_quiet }, "--quiet            Silence logging" },
+#ifndef NDEBUG
+	{ "F|filter", A_STRING, ._vec.s_ptr = &msg_filter,   "--filter=msg       Specify debug log filter" },
+#endif
 	{ NULL,        A_FLAG,   ._vec = {} }
 };
 
@@ -219,6 +225,7 @@ int parse_cmdline(int ac, char *av[])
 	int             ix, sx;		// ix indexes args[] table, sx indexes argscale[] table.
 	int             _s;			// _s == true when using SHORT args (-D -f, etc)
 
+	programname = av[0];
 	while (ai < ac && *av[ai] == '-') {
 		_s = av[ai][1] != '-';
 		for (_p = av[ai]; *_p == '-'; _p++);

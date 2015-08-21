@@ -65,7 +65,8 @@ typedef enum
 	EVENT_CHILD,
 	EVENT_RESTARTING,
 	EVENT_MAX,
-	EVNET_STATE,
+	EVENT_STATE,
+	EVENT_LOGGING,
 
     // Driver specific events
 	EXEC_SET_RESPAWN,
@@ -152,6 +153,7 @@ extern char    *driver_data_type_map[];
 
 typedef enum
 {
+	CHILD_UNKNOWN,
 	CHILD_STARTING,
 	CHILD_STARTED,
 	CHILD_STOPPING,
@@ -227,9 +229,9 @@ extern context_t context_table[MAX_CONTEXTS];
 extern event_request_t event_table[MAX_EVENT_REQUESTS];
 
 extern int      event_subsystem_init(void);
-extern event_request_t *event_find(const context_t * ctx, int fd, const event_handler_flags_t flags);
-extern event_request_t *event_set(const context_t * ctx, int fd, event_handler_flags_t flags);
-extern event_request_t *event_add(context_t * ctx, const int fd, event_handler_flags_t flags);
+extern event_request_t *event_find(const context_t * ctx, int fd, const unsigned int flags);
+extern event_request_t *event_set(const context_t * ctx, int fd, unsigned int flags);
+extern event_request_t *event_add(context_t * ctx, const int fd, unsigned int flags);
 extern void     event_delete(context_t * ctx, int fd, event_handler_flags_t flags);
 
 extern int      event_bytes(int fd, size_t * pbytes);

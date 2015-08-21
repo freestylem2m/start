@@ -1,3 +1,6 @@
+#ifndef NDEBUG
+//#define NDEBUG
+#endif
 /*
  * File: exec.c
  *
@@ -25,27 +28,34 @@
  *
  */
 
+#define _XOPEN_SOURCE
+#define _GNU_SOURCE
 #include <stdio.h>
-#include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
 #include <strings.h>
 #include <stdarg.h>
 #include <errno.h>
 #include <ctype.h>
+#include <sys/types.h>
 #include <sys/wait.h>
 #include <sys/stat.h>
 #include <time.h>
 #include <stdint.h>
 
+#include <stdlib.h>
+#include <fcntl.h>
+#undef _XOPEN_SOURCE
+
 #include "netmanage.h"
 #include "driver.h"
 #include "events.h"
 #include "exec.h"
+#include "logger.h"
 
-int exec_init(context_t *context)
+int exec_init(context_t *ctx)
 {
-	d_printf("Hello from EXEC INIT!\n");
+	d_printf("%s Hello from EXEC INIT!\n", ctx->name);
 
 	// register "emit" as the event handler of choice
 	
@@ -56,19 +66,21 @@ int exec_init(context_t *context)
 
 	cf->state = EXEC_STATE_IDLE;
 
-	if( config_istrue( context->config, "respawn" ) )
+	if( config_istrue( ctx->config, "respawn" ) )
 		cf->flags |= EXEC_RESPAWN;
 
 	u_ringbuf_init( &cf->output );
 
-	context->data = cf;
+	ctx->data = cf;
 
 	return 1;
 }
 
 int exec_shutdown(context_t *ctx)
 {
-	d_printf("Goodbye from EXEC!\n");
+	x_printf(ctx,"Goodbye from EXEC!\n");
+
+	x_printf(ctx,"context data = %p\n",ctx->data);
 
 	exec_config_t *cf = (exec_config_t *) ctx->data;
 	int siglist[] = { SIGTERM, SIGTERM, SIGKILL, 0 };
@@ -176,14 +188,14 @@ char *process_command( char *cmd, char *exe, char **vec )
 	return 0;
 }
 
-int exec_launch( context_t *context )
+int exec_launch( context_t *ctx, int use_tty )
 {
 	char exe[PATH_MAX];
 	char *vec[CMD_ARGS_MAX];
 	const char *cmdline;
 	char *cmd;
 
-	cmdline = config_get_item( context->config, "cmd" );
+	cmdline = config_get_item( ctx->config, "cmd" );
 
 	if( !cmdline )
 		return -1;
@@ -192,26 +204,56 @@ int exec_launch( context_t *context )
 
 	const char *path = process_command( cmd, exe, vec );
 
-	exec_config_t *cf = (exec_config_t *) context->data;
+	exec_config_t *cf = (exec_config_t *) ctx->data;
 
 	if( !path ) {
-		d_printf("Failing with unable-to-find-file error\n");
+		d_printf("%s - Failing with unable-to-find-file error\n", ctx->name);
 		free(cmd);
 		return -1;
 	}
 	
 	int fd_in[2] = { 0,0 };
 	int fd_out[2] = { 0,0 };
-	if( pipe( fd_in ) || pipe( fd_out ) ) {
-		int i;
-		for(i=0;i<2;i++) {
-			if( fd_in[i] )
-				close( fd_in[i] );
-			if( fd_out[i] )
-				close( fd_out[i] );
+
+	if( use_tty ) {
+		d_printf("Trying to open a tty!!!!\n");
+		fd_in[FD_READ] = fd_out[FD_WRITE] = open("/dev/ptmx", O_RDWR | O_NOCTTY | O_NONBLOCK );
+
+		if( fd_in[FD_READ] < 0 ) {
+			logger(ctx->owner, ctx, "Failed to open a pty to launch %s\n", cmd);
+			FATAL("Failed to open pty - terminating\n");
+			free(cmd);
+			return 1;
 		}
-		free(cmd);
-		return 1;
+
+		char *slave_name = ptsname( fd_in[FD_READ] );
+		x_printf(ctx, "slave_name = %s\n",slave_name);
+
+		unlockpt( fd_in[FD_READ] );
+		grantpt( fd_in[FD_READ] );
+
+		fd_in[FD_WRITE] = fd_out[FD_READ] = open( slave_name, O_RDWR );
+
+		if( fd_in[FD_WRITE] < 0 ) {
+
+			logger(ctx->owner, ctx, "Failed to open pty-slave for %s\n",cmd);
+			FATAL("Failed to open pty-slave\n");
+			close( fd_in[FD_READ] );
+			free(cmd);
+			return 1;
+		}
+	} else {
+		if( pipe( fd_in ) || pipe( fd_out ) ) {
+			int i;
+			for(i=0;i<2;i++) {
+				if( fd_in[i] )
+					close( fd_in[i] );
+				if( fd_out[i] )
+					close( fd_out[i] );
+			}
+			free(cmd);
+			return 1;
+		}
 	}
 
 	int pid;
@@ -224,17 +266,34 @@ int exec_launch( context_t *context )
 		close( fd_out[FD_READ] );
 		cf->fd_out = fd_out[FD_WRITE];
 
-		event_add( context, cf->fd_in, EH_READ );
-		event_add( context, cf->fd_out, EH_EXCEPTION );
+		if( use_tty ) {
+			event_add( ctx, cf->fd_in, EH_READ | EH_EXCEPTION );
+		} else {
+			event_add( ctx, cf->fd_in, EH_READ );
+			event_add( ctx, cf->fd_out, EH_EXCEPTION );
+		}
 
+		x_printf(ctx,"New child process (pid = %d, fd = %d/%d) %s\n",pid,cf->fd_in,cf->fd_out, cmd );
 		free( cmd );
 	} else {
 		// Child.  convert to stdin/stdout
-		int fd;
+		//int fd;
 
-		dup2( fd_out[FD_READ], 0 );
-		dup2( fd_in[FD_WRITE], 1 );
-		dup2( fd_in[FD_WRITE], 2 );
+		x_printf(ctx,"replacing stdin and out/err with %d / %d\n",fd_out[FD_READ], fd_in[FD_WRITE]);
+		if( dup2( fd_out[FD_READ], 0 ) < 0 ) {
+			x_printf(ctx, "Failed to set up STDIN with %d\n", fd_out[FD_READ]);
+		}
+		if( dup2( fd_in[FD_WRITE], 1 ) < 0 ) {
+			x_printf(ctx, "Failed to set up STDOUT with %d\n", fd_in[FD_WRITE]);
+		}
+		if( dup2( fd_in[FD_WRITE], 2 ) < 0 ) {
+			x_printf(ctx, "Failed to set up STDERR with %d\n", fd_in[FD_WRITE]);
+		}
+
+		close( fd_in[FD_READ] );
+		close( fd_in[FD_WRITE] );
+		close( fd_out[FD_READ] );
+		close( fd_out[FD_WRITE] );
 
 		sigset_t all_signals;
 		sigemptyset( &all_signals );
@@ -242,11 +301,11 @@ int exec_launch( context_t *context )
 		sigaddset( &all_signals, SIGCHLD );
 		sigprocmask(SIG_SETMASK, &all_signals, NULL);
 
-		for(fd = 3; fd < 1024; fd ++)
-			close(fd);
+		//for(fd = 3; fd < 1024; fd ++)
+			//close(fd);
 		
 		execv(exe,vec);
-		d_printf("Execv failed!\n");
+		d_printf("%s - Execv failed!\n", ctx->name);
 		exit(-128);
 	}
 
@@ -261,7 +320,8 @@ ssize_t exec_handler(context_t *ctx, event_t event, driver_data_t *event_data )
 
 	exec_config_t *cf = (exec_config_t *) ctx->data;
 
-	//d_printf("event = \"%s\" (%d)\n", event_map[event], event);
+	if( event != EVENT_TICK )
+		x_printf(ctx,"event = \"%s\" (%d)\n", event_map[event], event);
 
 	if( event_data->type == TYPE_FD )
 		fd = & event_data->event_request;
@@ -270,17 +330,20 @@ ssize_t exec_handler(context_t *ctx, event_t event, driver_data_t *event_data )
 
 	switch( event ) {
 		case EVENT_INIT:
-			d_printf( "INIT event triggered\n");
+			x_printf(ctx, "INIT event triggered\n");
 			{
 				event_add( ctx, 0, EH_WANT_TICK );
 				event_add( ctx, SIGQUIT, EH_SIGNAL );
 				event_add( ctx, SIGCHLD, EH_SIGNAL );
 				event_add( ctx, SIGPIPE, EH_SIGNAL );
 
-				if( ! exec_launch( ctx ) )
+				if( config_istrue( ctx->config, "tty" ) )
+					cf->flags |= EXEC_TTY_REQUIRED;
+
+				if( ! exec_launch( ctx, cf->flags & EXEC_TTY_REQUIRED ) )
 					cf->state = EXEC_STATE_RUNNING;
 				else {
-					d_printf("exec() failed to start process\n");
+					d_printf("%s - exec() failed to start process\n", ctx->name);
 					cf->state = EXEC_STATE_ERROR;
 					return context_terminate(ctx);
 				}
@@ -288,7 +351,7 @@ ssize_t exec_handler(context_t *ctx, event_t event, driver_data_t *event_data )
 			break;
 
 		case EVENT_TERMINATE:
-			d_printf("Got a termination event.  Cleaning up\n");
+			d_printf("%s - Got a termination event.  Cleaning up\n", ctx->name);
 			cf->termination_timestamp = time(0L);
 
 			if( cf->state == EXEC_STATE_RUNNING ) {
@@ -329,51 +392,55 @@ ssize_t exec_handler(context_t *ctx, event_t event, driver_data_t *event_data )
                 event_delete( ctx, cf->fd_out, EH_NONE );
                 cf->fd_out = -1;
 
-                d_printf("Got a restart request (signal = %d)..\n", sig);
+                d_printf("%s - Got a restart request (signal = %d)..\n", ctx->name, sig);
             }
 			break;
 
 		case EVENT_DATA_INCOMING:
 		case EVENT_DATA_OUTGOING:
 			if( data ) {
-				d_printf("Got a DATA event from my parent...\n");
-				//d_printf("bytes = %d\n",data->bytes );
-				//d_printf("buffer = %s\n", (char *) data->data );
-				//d_printf("buffer[%d] = %d\n",data->bytes,((char *)data->data)[data->bytes]);
-				//d_printf("writing to file %d\n",cf->fd_out);
-				//d_printf("state = %d\n",cf->state);
-				if( cf->state == EXEC_STATE_RUNNING )
-					if( write( cf->fd_out, data->data, data->bytes ) < 0)
-						d_printf("Failed to forward incoming data\n");
-			} else {
-				d_printf("Got a DATA event from my parent... WITHOUT ANY DATA!!!\n");
+				x_printf(ctx,"Got a DATA event from my parent...\n" );
 				ssize_t items = u_ringbuf_write( &cf->output, data->data, data->bytes );
+
 				if( !u_ringbuf_empty( &cf->output ) )
 					event_add( ctx, cf->fd_out, EH_WRITE );
 
 				// items = number of items queued.. or -1 for error.
+				x_printf(ctx,"EVENT_DATA - adding %d bytes to ring buffer\n",items);
 				return items;
 			}
 
 			break;
 
+		case EVENT_WRITE:
+			x_printf(ctx,"Got a write event on fd %d\n",fd->fd);
+			
+			if( u_ringbuf_ready( &cf->output )) {
+				u_ringbuf_write_fd( &cf->output, cf->fd_out );
+			}
+
+			if( u_ringbuf_empty( &cf->output ) )
+				event_delete( ctx, cf->fd_out, EH_WRITE );
+
+			break;
+
 		case EVENT_READ:
 			{
-				d_printf("Read event triggerred for fd = %d\n",fd->fd);
+				d_printf("%s - Read event triggerred for fd = %d\n", ctx->name, fd->fd);
 				size_t bytes;
 				event_bytes( fd->fd, &bytes );
 				if( bytes ) {
 
-					d_printf("Read event for fd = %d (%d bytes)\n",fd->fd, bytes);
+					d_printf("%s - Read event for fd = %d (%d bytes)\n", ctx->name, fd->fd, bytes);
 					char read_buffer[MAX_READ_BUFFER];
 
 					if( bytes >= MAX_READ_BUFFER ) {
 						bytes = MAX_READ_BUFFER-1;
-						d_printf("WARNING: Truncating read to %d bytes\n",bytes);
+						d_printf("%s - WARNING: Truncating read to %d bytes\n",ctx->name, bytes);
 					}
 
 					ssize_t result = event_read( fd->fd, read_buffer, bytes);
-					d_printf("Read event returned %d bytes of data\n",bytes);
+					d_printf("%s - Read event returned %d bytes of data\n",ctx->name, bytes);
 
 					if( result >= 0 ) {
 						read_buffer[result] = 0;
@@ -383,12 +450,12 @@ ssize_t exec_handler(context_t *ctx, event_t event, driver_data_t *event_data )
 						read_data.event_data.bytes = (size_t) result;
 
 						if( emit( ctx->owner, EVENT_DATA_INCOMING, &read_data ) != result )
-							d_printf("WARNING: %s failed to send all data to %s\n",ctx->name,ctx->owner->name);
+							x_printf(ctx,"WARNING: Failed to send all data to %s\n",ctx->owner->name);
 
 					} else
 						d_printf(" * WARNING: read return unexpected result %d\n",result);
 				} else {
-					d_printf("EOF on input. Cleaning up\n");
+					d_printf("%s - EOF on input. Cleaning up\n", ctx->name);
 					if( fd->fd == cf->fd_in ) {
 						d_printf("Child program has terminated\n");
 
@@ -413,23 +480,24 @@ ssize_t exec_handler(context_t *ctx, event_t event, driver_data_t *event_data )
 			break;
 
 		case EVENT_SEND_SIGNAL:
-			d_printf("Asked to send a signal to process\n");
+			d_printf("%s - Asked to send a signal to process\n",ctx->name);
 			if( cf->pid > 0 ) {
 				kill( cf->pid, event_data->event_signal );
 #ifndef NDEBUG
 			} else {
-				d_printf("No process to signal\n");
+				d_printf("%s - No process to signal\n", ctx->name);
 #endif
 			}
 			break;
 
 		case EVENT_SIGNAL:
 			if( event_data->event_signal == SIGCHLD ) {
-				//d_printf("Reaping deceased child (expecting pid %d)\n",cf->pid);
+				d_printf("%s - Reaping deceased child (expecting pid %d)\n",ctx->name, cf->pid);
 				int status;
 				int rc = event_waitchld(&status, cf->pid);
 
 				if( rc == cf->pid ) {
+					x_printf(ctx, "PID matches.  cleaning up\n");
 					// disable further events being recognized for this process
 					cf->pid = -1;
 					//d_printf("SIGNAL - closing output file descriptor\n");
@@ -446,6 +514,8 @@ ssize_t exec_handler(context_t *ctx, event_t event, driver_data_t *event_data )
 					}
 					// Process may have terminated, but you cannot assume output has drained.
 					cf->state = EXEC_STATE_STOPPING;
+				} else {
+					x_printf(ctx, "PID does not match.  Ignoring.\n");
 				}
 			}
 			break;
@@ -455,10 +525,10 @@ ssize_t exec_handler(context_t *ctx, event_t event, driver_data_t *event_data )
 				time( & cf->last_tick );
 				if( cf->flags & EXEC_TERMINATING ) {
 					if(( time(0L) - cf->termination_timestamp ) > (EXEC_PROCESS_TERMINATION_TIMEOUT*2) ) {
-						d_printf("REALLY Pushing it along with a SIGKILL\n");
+						d_printf("%s - REALLY Pushing it along with a SIGKILL\n", ctx->name);
 						kill( cf->pid, SIGKILL );
 					} else if(( time(0L) - cf->termination_timestamp ) > EXEC_PROCESS_TERMINATION_TIMEOUT ) {
-						d_printf("Pushing it along with a SIGTERM\n");
+						d_printf("%s - Pushing it along with a SIGTERM\n", ctx->name);
 						kill( cf->pid, SIGTERM );
 					}
 				}
@@ -466,7 +536,7 @@ ssize_t exec_handler(context_t *ctx, event_t event, driver_data_t *event_data )
 			break;
 
 		default:
-			d_printf("\n *\n *\n * Emitted some kind of event \"%s\" (%d)\n *\n *\n", event_map[event], event);
+			d_printf("\n *\n *\n * %s - Emitted some kind of event \"%s\" (%d)\n *\n *\n", ctx->name, event_map[event], event);
 	}
 	return 0;
 }
