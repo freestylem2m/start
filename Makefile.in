@@ -20,7 +20,7 @@ CC=/opt/buildroot-gcc342/bin/mipsel-linux-gcc
 
 INCLUDES=-Isrc
 CFLAGS=$(DEBUG) $(RELEASE) $(INCLUDES) $(EXTRA_FLAGS) $(ARCH) $(WARNINGS) $(EXTRA_WARNINGS) $(FEATURES)
-LDFLAGS=$(DEBUG)
+LDFLAGS=$(DEBUG) $(ARCH)
 
 #.SILENT:
 

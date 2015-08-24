@@ -454,7 +454,7 @@ ssize_t unicorn_handler(context_t *ctx, event_t event, driver_data_t *event_data
 		break;
 
 	case EVENT_EXCEPTION:
-		d_printf("Got an exception on FD %d\n", fd->fd);
+		//d_printf("Got an exception on FD %d\n", fd->fd);
 		break;
 
 	case EVENT_SIGNAL:
