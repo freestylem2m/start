@@ -1,7 +1,7 @@
 #                                               -*- Autoconf -*-
 # Process this file with autoconf to produce a configure script.
 
-AC_PREREQ([2.69])
+AC_PREREQ([2.68])
 AC_INIT([netmanage], [1.0], [david.leblanc@freestyletechnology.com.au])
 AC_CONFIG_SRCDIR([src/config.c])
 AC_CONFIG_HEADERS([config.h])
