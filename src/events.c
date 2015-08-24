@@ -244,11 +244,11 @@ int create_event_set( fd_set *readfds, fd_set *writefds, fd_set *exceptfds, int 
 			} else {
                 //d_printf(" ** Adding registered events for %s (fd = %d)\n",event_table[i].ctx->name, event_table[i].fd);
 				if( event_table[i].flags & EH_READ )
-					FD_SET(event_table[i].fd, readfds), count ++;
+					FD_SET( (unsigned int) event_table[i].fd, readfds), count ++;
 				if( event_table[i].flags & EH_WRITE )
-					FD_SET(event_table[i].fd, writefds), count ++;
+					FD_SET( (unsigned int) event_table[i].fd, writefds), count ++;
 				if( event_table[i].flags & EH_EXCEPTION )
-					FD_SET(event_table[i].fd, exceptfds), count ++;
+					FD_SET( (unsigned int) event_table[i].fd, exceptfds), count ++;
 				if( event_table[i].fd >= *max )
 					*max = event_table[i].fd+1;
 			}
@@ -338,11 +338,11 @@ int handle_event_set( fd_set *readfds, fd_set *writefds, fd_set *exceptfds )
 			driver_data_t data = { TYPE_FD, 0L, {} };
 			data.event_request.fd = event_table[i].fd;
 			data.event_request.flags = event_table[i].flags;
-			if( (event_table[i].flags & EH_EXCEPTION) &&  FD_ISSET( event_table[i].fd, exceptfds ) )
+			if( (event_table[i].flags & EH_EXCEPTION) &&  FD_ISSET( (unsigned int) event_table[i].fd, exceptfds ) )
 				event_table[i].ctx->driver->emit( event_table[i].ctx, EVENT_EXCEPTION, &data );
-			if( (event_table[i].flags & EH_WRITE) &&  FD_ISSET( event_table[i].fd, writefds ) )
+			if( (event_table[i].flags & EH_WRITE) &&  FD_ISSET( (unsigned int) event_table[i].fd, writefds ) )
 				event_table[i].ctx->driver->emit( event_table[i].ctx,  EVENT_WRITE, &data );
-			if( (event_table[i].flags & EH_READ) &&  FD_ISSET( event_table[i].fd, readfds ) )
+			if( (event_table[i].flags & EH_READ) &&  FD_ISSET( (unsigned int) event_table[i].fd, readfds ) )
 				event_table[i].ctx->driver->emit( event_table[i].ctx, EVENT_READ, &data );
 		}
 	}

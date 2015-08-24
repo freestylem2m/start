@@ -15,6 +15,7 @@ include_path = [
         ]
 
 build_dir = os.path.join('build',platform)
+exe_dir = os.path.join('bin',platform)
 VariantDir( build_dir, '.', duplicate=0 )
 
 build_config = Environment(ENV = os.environ)
@@ -26,6 +27,8 @@ if platform == 'i386':
 
 if platform == 'hvc-50x':
     print "Building for HVC"
+    compiler = '/opt/buildroot-gcc342/bin/mipsel-linux-gcc'
+    build_config.Replace(CC=compiler)
 
 if debug == 0:
     build_config.Append(CCFLAGS = '-fshort-enums -fbounds-check' )
@@ -64,9 +67,7 @@ for root, dirnames, filenames in os.walk( 'src' ):
     for filename in fnmatch.filter( filenames, '*.c' ):
         main_source.append( os.path.join( top,build_dir,root,filename ))
 
-print main_source
-
-netmanage_binary = os.path.join(top,build_dir,'netmanage')
+netmanage_binary = os.path.join(top,exe_dir,'netmanage')
 
 build_config.Clean( 'src/driver.c' , [ 'src/driver_setup.h', 'src/driver_config.h' ] );
 build_config.Append( CPPPATH = include_path )

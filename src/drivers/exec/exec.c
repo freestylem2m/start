@@ -1,6 +1,3 @@
-#ifndef NDEBUG
-//#define NDEBUG
-#endif
 /*
  * File: exec.c
  *
@@ -45,6 +42,8 @@
 
 #include <stdlib.h>
 #include <fcntl.h>
+#include <stdbool.h>
+
 #undef _XOPEN_SOURCE
 
 #include "netmanage.h"
@@ -341,7 +340,7 @@ ssize_t exec_handler(context_t *ctx, event_t event, driver_data_t *event_data )
 				if( config_istrue( ctx->config, "tty" ) )
 					cf->flags |= EXEC_TTY_REQUIRED;
 
-				if( ! exec_launch( ctx, cf->flags & EXEC_TTY_REQUIRED ) ) {
+				if( ! exec_launch( ctx, (int) (cf->flags & EXEC_TTY_REQUIRED) ) ) {
 					cf->state = EXEC_STATE_RUNNING;
 					// Let the parent know the process has started/restarted
 					driver_data_t notification = { TYPE_CHILD, ctx, {} };

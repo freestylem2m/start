@@ -9,6 +9,6 @@ netmanage
 .depend
 src/driver_config.h
 src/driver_setup.h
-*.o
+build/
 .ycm_extra_conf.pyc
 gdb.i
