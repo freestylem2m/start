@@ -479,6 +479,10 @@ ssize_t unicorn_handler(context_t *ctx, event_t event, driver_data_t *event_data
 
 			check_control_file(ctx);
 
+			// Handle case where a massive time shift due to NTP resync causes all timeouts to fire simultaneously
+			if( (now - cf->last_message) > MAXIMUM_SAFE_TIMEDELTA )
+				cf->last_message = now;
+
 			if( (now - cf->last_message) > 300 ) {
 				// Its been a long time since the last keepalive, despite prompting for one
 				// restart the modem driver
