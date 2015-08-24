@@ -144,8 +144,7 @@ ssize_t logger_handler(context_t *ctx, event_t event, driver_data_t *event_data 
 					size_t len = (size_t) strftime(spec_buffer,32,"%b %e %H:%M:%S: ", localtime( &spec ));
 
 					if( cf->log_fd >= 0 ) {
-						write( cf->log_fd, spec_buffer, len );
-						if( write(cf->log_fd, logbuffer, strlen(logbuffer) ) < 0 )
+						if( (write( cf->log_fd, spec_buffer, len ) < 0) || ( write(cf->log_fd, logbuffer, strlen(logbuffer) ) < 0 ) )
 							perror( AT "write");
 					} else {
 						fwrite( spec_buffer, len, 1, stderr );

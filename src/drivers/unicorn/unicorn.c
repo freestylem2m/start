@@ -71,7 +71,7 @@ int unicorn_shutdown(context_t * ctx)
 	return 1;
 }
 
-ssize_t send_unicorn_command( context_t *ctx, cmdHost_t cmd, cmdState_t state, unsigned int length, void *data )
+ssize_t send_unicorn_command( context_t *ctx, cmdHost_t cmd, cmdState_t state, size_t length, void *data )
 {
 	unicorn_config_t *cf = ctx->data;
 
@@ -247,7 +247,6 @@ int check_control_file(context_t *ctx)
 
 ssize_t unicorn_handler(context_t *ctx, event_t event, driver_data_t *event_data)
 {
-	event_request_t *fd = 0;
 	event_data_t   *data = 0L;
 	event_child_t *child = 0L;
 
@@ -260,9 +259,7 @@ ssize_t unicorn_handler(context_t *ctx, event_t event, driver_data_t *event_data
 	//d_printf("event_data = %p\n", event_data);
 	//d_printf("event_data->type = %s\n", driver_data_type_map[event_data->type]);
 
-	if (event_data && event_data->type == TYPE_FD)
-		fd = &event_data->event_request;
-	else if (event_data->type == TYPE_DATA)
+	if (event_data->type == TYPE_DATA)
 		data = &event_data->event_data;
 	else if( event_data->type == TYPE_CHILD )
 		child = & event_data->event_child;
