@@ -32,7 +32,6 @@
 #include <string.h>
 #include <alloca.h>
 #include <sys/types.h>
-#include <sys/time.h>
 #include <sys/ioctl.h>
 #include <fcntl.h>
 #include <unistd.h>

@@ -2,8 +2,6 @@
 #ifndef __DRIVER_CONSOLE_H_
 #define __DRIVER_CONSOLE_H_
 
-#include <sys/time.h>
-
 #include "driver.h"
 
 #define FD_READ 0

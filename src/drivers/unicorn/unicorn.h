@@ -83,9 +83,9 @@ typedef struct frmHdr_s
 } __attribute__((packed)) frmHdr_t;
 
 // If modem driver takes more than this many seconds, kill it.
-#define UNICORN_PROCESS_TERMINATION_TIMEOUT 10
-#define UNICORN_CONNECT_TIMEOUT 120
-#define UNICORN_RESTART_DELAY   120
+#define UNICORN_PROCESS_TERMINATION_TIMEOUT 10*1000
+#define UNICORN_CONNECT_TIMEOUT 120*1000
+#define UNICORN_RESTART_DELAY   120*1000
 
 // After reading a header, if the data frame takes longer than this many seconds
 // reset.

@@ -2,7 +2,7 @@
 #ifndef __DRIVER_SYSLOG_H_
 #define __DRIVER_SYSLOG_H_
 
-#include <sys/time.h>
+#include <time.h>
 
 #include "driver.h"
 

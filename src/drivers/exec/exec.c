@@ -37,7 +37,6 @@
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <sys/stat.h>
-#include <time.h>
 #include <stdint.h>
 
 #include <stdlib.h>
@@ -51,6 +50,7 @@
 #include "events.h"
 #include "exec.h"
 #include "logger.h"
+#include "clock.h"
 
 int exec_init(context_t *ctx)
 {
@@ -358,7 +358,7 @@ ssize_t exec_handler(context_t *ctx, event_t event, driver_data_t *event_data )
 
 		case EVENT_TERMINATE:
 			d_printf("%s - Got a termination event.  Cleaning up\n", ctx->name);
-			cf->pending_action_timestamp = time(0L);
+			cf->pending_action_timestamp = rel_time(0L);
 
 			if( cf->state == EXEC_STATE_RUNNING ) {
 				event_delete( ctx, cf->fd_out, EH_NONE );
@@ -405,7 +405,7 @@ ssize_t exec_handler(context_t *ctx, event_t event, driver_data_t *event_data )
                 cf->fd_in = -1;
 				cf->state = EXEC_STATE_STOPPING;
 
-				cf->pending_action_timestamp = time(0L);
+				cf->pending_action_timestamp = rel_time(0L);
 
                 d_printf("%s - Got a restart request (signal = %d)..\n", ctx->name, sig);
             }
@@ -487,7 +487,7 @@ ssize_t exec_handler(context_t *ctx, event_t event, driver_data_t *event_data )
 							// program termination already signalled
 							if( (cf->flags & (EXEC_RESPAWN|EXEC_TERMINATING)) == EXEC_RESPAWN ) {
 								cf->state = EXEC_STATE_IDLE;
-								cf->pending_action_timestamp = time(0L);
+								cf->pending_action_timestamp = rel_time(0L);
 								//return emit( ctx, EVENT_INIT, DRIVER_DATA_NONE );
 							} else
 								return context_terminate( ctx );
@@ -531,7 +531,7 @@ ssize_t exec_handler(context_t *ctx, event_t event, driver_data_t *event_data )
 							cf->flags &= ~(unsigned int)EXEC_RESTARTING;
 							x_printf(ctx,"setting up for respawn after %d seconds.\n",cf->restart_delay);
 							cf->state = EXEC_STATE_IDLE;
-							cf->pending_action_timestamp = time(0L);
+							cf->pending_action_timestamp = rel_time(0L);
 							//return emit( ctx, EVENT_INIT, DRIVER_DATA_NONE );
 						} else if( cf->flags & EXEC_TERMINATING ) {
 							x_printf(ctx,"terminating.");
@@ -550,7 +550,7 @@ ssize_t exec_handler(context_t *ctx, event_t event, driver_data_t *event_data )
 
 		case EVENT_TICK:
 			{
-				time_t now = time(0L);
+				time_t now = rel_time(0L);
 
 				cf->last_tick = now;
 				if( cf->flags & (EXEC_TERMINATING|EXEC_RESTARTING) ) {

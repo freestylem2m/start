@@ -35,12 +35,12 @@
 #include <ctype.h>
 #include <sys/wait.h>
 #include <sys/stat.h>
-#include <time.h>
 
 #include "netmanage.h"
 #include "driver.h"
 #include "events.h"
 #include "console.h"
+#include "clock.h"
 
 int console_init(context_t *ctx)
 {
@@ -166,10 +166,10 @@ ssize_t console_handler(context_t *ctx, event_t event, driver_data_t *event_data
 		case EVENT_TICK:
 			{
 				char            buffer[64];
-				time_t          now = time(0L);
+				time_t          now = rel_time(0L);
 				strftime(buffer, 64, "%T", localtime(&now));
-				d_printf("%s:   ** Tick (%ld seconds) **\n", buffer, cf->last_tick ? time(0L) - cf->last_tick : -1);
-				time(&cf->last_tick);
+				d_printf("%s:   ** Tick (%ld useconds) **\n", buffer, cf->last_tick ? rel_time(0L) - cf->last_tick : -1);
+				rel_time(&cf->last_tick);
 			}
 			break;
 

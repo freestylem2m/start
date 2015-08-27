@@ -37,10 +37,10 @@
 #include <ctype.h>
 #include <sys/wait.h>
 #include <sys/stat.h>
-#include <time.h>
 #include <syslog.h>
 
 #include "netmanage.h"
+#include "clock.h"
 #include "driver.h"
 #include "events.h"
 #include "syslog.h"

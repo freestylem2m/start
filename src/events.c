@@ -33,7 +33,6 @@
 #include <stdarg.h>
 #include <errno.h>
 #include <ctype.h>
-#include <time.h>
 #include <errno.h>
 #include <sys/select.h>
 #include <sys/ioctl.h>
@@ -42,6 +41,7 @@
 #include <sys/fcntl.h>
 
 #include "netmanage.h"
+#include "clock.h"
 #include "events.h"
 #include "driver.h"
 
@@ -354,7 +354,7 @@ int handle_timer_events()
 	int i;
 
 	driver_data_t tick = { TYPE_TICK, 0L, {} };
-	tick.event_tick = time(0L);
+	tick.event_tick = rel_time(0L);
 
 	// All drivers get the same 'tick' timestamp, even if some drivers take time to process the tick
 	for(i = 0; i < MAX_EVENT_REQUESTS; i++ )

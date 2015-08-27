@@ -41,7 +41,7 @@
 // Maximum time shift allowed before considering the offset to be a time-sync event
 // If a time shift > 3 days occurs, assume the RTC was out, and a time sync caused
 // a massive shift to the current date/time
-#define MAXIMUM_SAFE_TIMEDELTA (3*86400)
+#define MAXIMUM_SAFE_TIMEDELTA (3*86400*1000)
 
 // Maximum number of services/drivers loaded
 #define MAX_CONTEXTS 32

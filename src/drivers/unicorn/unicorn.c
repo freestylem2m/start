@@ -35,9 +35,9 @@
 #include <ctype.h>
 #include <sys/wait.h>
 #include <sys/stat.h>
-#include <time.h>
 
 #include "netmanage.h"
+#include "clock.h"
 #include "driver.h"
 #include "events.h"
 #include "unicorn.h"
@@ -52,7 +52,7 @@ int unicorn_init(context_t * ctx)
 	if (0 == (cf = (unicorn_config_t *) calloc( sizeof( unicorn_config_t ) , 1 )))
 		return 0;
 
-	cf->pending_action_timeout = cf->last_message = time(0L);
+	cf->pending_action_timeout = cf->last_message = rel_time(0L);
 	cf->driver_state = CMD_ST_UNKNOWN;
 
 	u_ringbuf_init(&cf->input);
@@ -140,7 +140,7 @@ ssize_t process_unicorn_data( context_t *ctx )
 			}
 
 			// Record the time, so I don't send unnecessary state requests
-			cf->last_message = time(0L);
+			cf->last_message = rel_time(0L);
 			// handle notifications with no data
 			d_printf("Got CMD   %d\n",cf->msgHdr.cmd );
 			d_printf("Got STATE %d\n",cf->msgHdr.state );
@@ -195,7 +195,7 @@ ssize_t process_unicorn_data( context_t *ctx )
 				case CMD_DATA:
 					cf->flags |= UNICORN_EXPECTING_DATA;
 					cf->data_length = cf->msgHdr.length;
-					cf->last_message = time(0L);
+					cf->last_message = rel_time(0L);
 					break;
 				default:
 					d_printf("Not ready to deal with cmd %d\n",cf->msgHdr.cmd);
@@ -310,7 +310,7 @@ ssize_t unicorn_handler(context_t *ctx, event_t event, driver_data_t *event_data
 		{
 			d_printf("Got a termination event.  Cleaning up\n");
 
-			cf->pending_action_timeout = time(0L);
+			cf->pending_action_timeout = rel_time(0L);
 
 			cf->flags |= UNICORN_TERMINATING; // In process of terminating the modem driver
 			cf->state  = UNICORN_STATE_STOPPING; // In process of terminating self
@@ -337,7 +337,7 @@ ssize_t unicorn_handler(context_t *ctx, event_t event, driver_data_t *event_data
 		// set the 'reconnecting' flag and send a disconnect
 		if( event_data->source == ctx->owner ) {
 			x_printf(ctx,"Got restart event from parent, forcing modem reconnect\n");
-			cf->pending_action_timeout = time(0L);
+			cf->pending_action_timeout = rel_time(0L);
 			cf->flags |= UNICORN_WAITING_FOR_CONNECT;
 			if( cf->modem )
 				send_unicorn_command( ctx, CMD_DISCONNECT, CMD_ST_OFFLINE, 0, 0L );
@@ -366,7 +366,7 @@ ssize_t unicorn_handler(context_t *ctx, event_t event, driver_data_t *event_data
 				} else {
 					x_printf(ctx,"Need to restart modem driver\n");
 					cf->flags |= UNICORN_RESTARTING;
-					cf->pending_action_timeout = time(0L);
+					cf->pending_action_timeout = rel_time(0L);
 					// Reset the driver state, and notify the parent that we are offline
 					cf->driver_state = CMD_ST_UNKNOWN;
 					context_owner_notify( ctx, CHILD_EVENT, UNICORN_MODE_OFFLINE );
@@ -472,7 +472,7 @@ ssize_t unicorn_handler(context_t *ctx, event_t event, driver_data_t *event_data
 
 	case EVENT_TICK:
 		{
-			time_t now = time(0L);
+			time_t now = rel_time(0L);
 
 			check_control_file(ctx);
 
@@ -480,7 +480,7 @@ ssize_t unicorn_handler(context_t *ctx, event_t event, driver_data_t *event_data
 			if( (now - cf->last_message) > MAXIMUM_SAFE_TIMEDELTA )
 				cf->last_message = now;
 
-			if( (now - cf->last_message) > 300 ) {
+			if( (now - cf->last_message) > 300*1000 ) {
 				// Its been a long time since the last keepalive, despite prompting for one
 				// restart the modem driver
 
@@ -492,7 +492,7 @@ ssize_t unicorn_handler(context_t *ctx, event_t event, driver_data_t *event_data
 				cf->last_message = now;
 			}
 
-			if( ((now - cf->last_message) > 120 ) && ( cf->driver_state != CMD_ST_UNKNOWN )) {
+			if( ((now - cf->last_message) > 120*1000 ) && ( cf->driver_state != CMD_ST_UNKNOWN )) {
 		
 				// Its been a couple of minutes since the last keepalive, reset the driver_state
 				// to unknown and prompt for one.
@@ -509,7 +509,7 @@ ssize_t unicorn_handler(context_t *ctx, event_t event, driver_data_t *event_data
 
 			if( (cf->flags & UNICORN_RESTARTING) && ((now - cf->pending_action_timeout) > UNICORN_RESTART_DELAY )) {
 				x_printf(ctx,"Restart delay expired - restarting modem driver\n");
-				cf->pending_action_timeout = time(0L);
+				cf->pending_action_timeout = rel_time(0L);
 				const char *endpoint = config_get_item( ctx->config, "endpoint" );
 				if( endpoint )
 					cf->modem = start_service( endpoint, ctx->config, ctx );

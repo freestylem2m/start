@@ -14,6 +14,10 @@ include_path = [
         top + '/src/drivers'
         ]
 
+libs = [
+        '-lrt'
+        ]
+
 build_dir = os.path.join('build',platform)
 exe_dir = os.path.join('bin',platform)
 VariantDir( build_dir, '.', duplicate=0 )
@@ -71,6 +75,6 @@ netmanage_binary = os.path.join(top,exe_dir,'netmanage')
 
 build_config.Clean( 'src/driver.c' , [ 'src/driver_setup.h', 'src/driver_config.h' ] );
 build_config.Append( CPPPATH = include_path )
-build_config.Program( netmanage_binary, main_source )
+build_config.Program( netmanage_binary, main_source, LIBS = libs )
 
 #Return("build_config");

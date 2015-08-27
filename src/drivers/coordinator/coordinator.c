@@ -35,7 +35,6 @@
 #include <ctype.h>
 #include <sys/wait.h>
 #include <sys/stat.h>
-#include <time.h>
 
 #include "netmanage.h"
 #include "driver.h"
@@ -43,6 +42,7 @@
 #include "coordinator.h"
 #include "logger.h"
 #include "unicorn.h"
+#include "clock.h"
 
 int coordinator_init(context_t *context)
 {
@@ -165,7 +165,7 @@ ssize_t coordinator_handler(context_t *ctx, event_t event, driver_data_t *event_
 							}
 						}
 					} else {
-						cf->modem_timestamp = time(0L);
+						cf->modem_timestamp = rel_time(0L);
 						cf->flags &= ~(unsigned int)COORDINATOR_MODEM_ONLINE;
 						if( cf->network ) {
 							// Terminate existing network driver
@@ -206,7 +206,7 @@ ssize_t coordinator_handler(context_t *ctx, event_t event, driver_data_t *event_
 				emit( cf->network, EVENT_TERMINATE, 0L );
 		
 			// If there is no child process, don't wait for it to terminate
-			cf->termination_timestamp = time(0L);
+			cf->termination_timestamp = rel_time(0L);
 
 			if( cf->state == COORDINATOR_STATE_RUNNING ) {
 				cf->flags |= COORDINATOR_TERMINATING;
@@ -271,15 +271,15 @@ ssize_t coordinator_handler(context_t *ctx, event_t event, driver_data_t *event_
 		case EVENT_TICK:
 			{
 				char buffer[64];
-				time_t now = time(0L);
+				time_t now = rel_time(0L);
 				strftime(buffer,64,"%T",localtime(&now));
-				//d_printf("%s:   ** Tick (%ld seconds) **\n", buffer, cf->last_tick ? time(0L)-cf->last_tick : -1);
-				time( & cf->last_tick );
+				//d_printf("%s:   ** Tick (%ld seconds) **\n", buffer, cf->last_tick ? rel_time(0L)-cf->last_tick : -1);
+				rel_time( & cf->last_tick );
 				if( cf->flags & COORDINATOR_TERMINATING ) {
-					d_printf("Been terminating for %ld seconds...\n",time(0L) - cf->termination_timestamp );
-					if(( time(0L) - cf->termination_timestamp ) > (PROCESS_TERMINATION_TIMEOUT*2) ) {
+					d_printf("Been terminating for %ld useconds...\n",rel_time(0L) - cf->termination_timestamp );
+					if(( rel_time(0L) - cf->termination_timestamp ) > (PROCESS_TERMINATION_TIMEOUT*2) ) {
 						d_printf("REALLY Pushing it along with a SIGKILL\n");
-					} else if(( time(0L) - cf->termination_timestamp ) > PROCESS_TERMINATION_TIMEOUT ) {
+					} else if(( rel_time(0L) - cf->termination_timestamp ) > PROCESS_TERMINATION_TIMEOUT ) {
 						d_printf("Pushing it along with a SIGTERM\n");
 					}
 				}
