@@ -90,9 +90,9 @@ ssize_t u_ringbuf_write_fd( u_ringbuf_t *rb, int fd)
 		if( ( fixed_read + avail ) > RINGBUFFER_MAX )
 			avail = RINGBUFFER_MAX - fixed_read;
 
-		d_printf("write(%d,%p,%d)\n",fd,rb->buffer + fixed_read, avail );
+		//d_printf("write(%d,%p,%d)\n",fd,rb->buffer + fixed_read, avail );
 		ssize_t written = write( fd, rb->buffer + fixed_read, avail );
-		d_printf("bytes written = %d\n", written);
+		//d_printf("bytes written = %d\n", written);
 
 		if( written > 0 ) {
 			bytes += written;
@@ -152,6 +152,12 @@ ssize_t u_ringbuf_read( u_ringbuf_t *rb, void *buffer, size_t length)
 ssize_t u_ringbuf_write( u_ringbuf_t *rb, void *buffer, size_t length)
 {
 	size_t bytes = 0;
+
+	// Truncate length to the number of bytes available in the buffer
+	size_t avail = RINGBUFFER_MAX - (rb->write_ptr-rb->read_ptr);
+
+	if( length > avail )
+		length = avail;
 
 	while( length ) {
 		size_t fixed_write = rb->write_ptr & RINGBUFFER_MODULO;
