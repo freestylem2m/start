@@ -41,7 +41,7 @@
 int signal_init(context_t *ctx)
 {
 #ifdef NDEBUG
-	UNUSED(ctx)
+	UNUSED(ctx);
 #endif
 	x_printf(ctx,"Hello from SIGNAL INIT!");
 
@@ -51,7 +51,7 @@ int signal_init(context_t *ctx)
 int signal_shutdown(context_t *ctx)
 {
 #ifdef NDEBUG
-	UNUSED(ctx)
+	UNUSED(ctx);
 #endif
 	x_printf(ctx,"Goodbye from SIGNAL!\n");
 	return 1;

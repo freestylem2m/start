@@ -117,18 +117,24 @@ int main(int ac, char *av[])
 		exit(-1);
 	}
 
-	const char *default_service = config_item( "global", "default" );
+	const char **default_service = config_itemlist( "global", "default" );
 	//d_printf("default_service = %s\n", default_service);
 
-	if( !default_service )
-		default_service = "coordinator";
+	if( !default_service ) {
+		fprintf(stderr,"There was a problem with the configuration.  No default services to start\n");
+	}
 
 	event_subsystem_init();
 
-	context_t *coord = start_service(default_service, config_get_section( "global" ), 0L );
+	while( *default_service ) {
+		context_t *coord = start_service(*default_service, config_get_section( "global" ), 0L );
+		if( !coord ) {
+			fprintf(stderr,"Failed to start default service (%s)\n", *default_service );
+			exit(0);
+		}
+		default_service ++;
+	}
 
-	if( !coord )
-		fprintf(stderr,"Failed to start default service (%s)\n",default_service );
 
 	run();
 

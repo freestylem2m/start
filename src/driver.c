@@ -161,14 +161,18 @@ context_t *context_create(const char *service_name, const config_t *service_conf
 	if( ! ptr )
 		return 0L;
 	
+#ifndef NDEBUG
 	int debug_level = config_get_intval(service_config, "debug");
+#endif
 
 	strncpy( ptr->name, service_name, MAX_SERVICE_NAME );
 	ptr->config = service_config;
 	ptr->driver = driver;
 	ptr->driver_config = driver_config;
 	ptr->state = CTX_STARTING;
+#ifndef NDEBUG
 	ptr->debug = debug_level;
+#endif
 
 	return ptr;
 }
