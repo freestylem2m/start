@@ -320,9 +320,6 @@ ssize_t exec_handler(context_t *ctx, event_t event, driver_data_t *event_data )
 
 	exec_config_t *cf = (exec_config_t *) ctx->data;
 
-	if( event != EVENT_TICK )
-		x_printf(ctx,"event = \"%s\" (%d)\n", event_map[event], event);
-
 	if( event_data->type == TYPE_FD )
 		fd = & event_data->event_request;
 	else if( event_data->type == TYPE_DATA )
@@ -330,7 +327,6 @@ ssize_t exec_handler(context_t *ctx, event_t event, driver_data_t *event_data )
 
 	switch( event ) {
 		case EVENT_INIT:
-			x_printf(ctx, "INIT event triggered\n");
 			{
 				event_add( ctx, 0, EH_WANT_TICK );
 				event_add( ctx, SIGQUIT, EH_SIGNAL );
@@ -342,14 +338,13 @@ ssize_t exec_handler(context_t *ctx, event_t event, driver_data_t *event_data )
 
 				if( ! exec_launch( ctx, (int) (cf->flags & EXEC_TTY_REQUIRED) ) ) {
 					cf->state = EXEC_STATE_RUNNING;
+					cf->tty = cf->flags & EXEC_TTY_REQUIRED;
 					// Let the parent know the process has started/restarted
 					driver_data_t notification = { TYPE_CHILD, ctx, {} };
 					notification.event_child.action = CHILD_EVENT;
 					notification.event_child.status = 0;
 					emit(ctx->owner, EVENT_RESTART, &notification);
-				}
-				else {
-					x_printf(ctx,"%s - exec() failed to start process\n", ctx->name);
+				} else {
 					cf->state = EXEC_STATE_ERROR;
 					return context_terminate(ctx);
 				}
@@ -357,17 +352,19 @@ ssize_t exec_handler(context_t *ctx, event_t event, driver_data_t *event_data )
 			break;
 
 		case EVENT_TERMINATE:
-			x_printf(ctx,"%s - Got a termination event.  Cleaning up\n", ctx->name);
 			cf->pending_action_timestamp = rel_time(0L);
 
 			if( cf->state == EXEC_STATE_RUNNING ) {
-				event_delete( ctx, cf->fd_out, EH_NONE );
-				// This should trigger eof-on-input for the child, who should terminate
-				close( cf->fd_out );
+				// When a 'tty' is in use, you can't close fd_in and fd_out separately.
+				if( cf->tty )
+					kill( cf->pid, SIGTERM );
+				else {
+					event_delete( ctx, cf->fd_out, EH_NONE );
+					close( cf->fd_out );
+				}
 				cf->flags |= EXEC_TERMINATING;
-			} else {
+			} else
 				context_terminate( ctx );
-            }
             break;
 
         case EXEC_SET_RESPAWN:
@@ -391,17 +388,19 @@ ssize_t exec_handler(context_t *ctx, event_t event, driver_data_t *event_data )
                     sig = *(uint8_t *) (event_data->event_custom);
 
                 cf->flags |= EXEC_RESTARTING;
-                if( sig ) {
-					x_printf(ctx,"Sending signal %d to process\n",sig);
+
+                if( sig )
                     kill( cf->pid, sig );
-				}
 
                 close(cf->fd_out);
                 event_delete( ctx, cf->fd_out, EH_NONE );
                 cf->fd_out = -1;
 
-                close(cf->fd_in);
-                event_delete( ctx, cf->fd_in, EH_NONE );
+				if( !cf->tty ) {
+					close(cf->fd_in);
+					event_delete( ctx, cf->fd_in, EH_NONE );
+				}
+
                 cf->fd_in = -1;
 				cf->state = EXEC_STATE_STOPPING;
 
@@ -414,52 +413,41 @@ ssize_t exec_handler(context_t *ctx, event_t event, driver_data_t *event_data )
 		case EVENT_DATA_INCOMING:
 		case EVENT_DATA_OUTGOING:
 			if(( cf->state == EXEC_STATE_RUNNING) && data ) {
-				
-				x_printf(ctx,"Got a DATA event from my parent...\n" );
 				ssize_t items = u_ringbuf_write( &cf->output, data->data, data->bytes );
-				x_printf(ctx,"write %d bytes to ring buffer\n", items);
 
-				if( !u_ringbuf_empty( &cf->output ) ) {
-					x_printf( ctx, "Adding WRITE event to FD_out\n");
+				if( !u_ringbuf_empty( &cf->output ) )
 					event_add( ctx, cf->fd_out, EH_WRITE );
-				}
 
-				// items = number of items queued.. or -1 for error.
-				x_printf(ctx,"EVENT_DATA - adding %d bytes to ring buffer\n",items);
 				return items;
 			}
 
 			break;
 
 		case EVENT_WRITE:
-			x_printf(ctx,"Got a write event on fd %d\n",fd->fd);
 			
-			if( u_ringbuf_ready( &cf->output )) {
-				u_ringbuf_write_fd( &cf->output, cf->fd_out );
-			}
+			if( cf->fd_out ) {
+				if( u_ringbuf_ready( &cf->output )) {
+					u_ringbuf_write_fd( &cf->output, cf->fd_out );
+				}
 
-			if( u_ringbuf_empty( &cf->output ) )
-				event_delete( ctx, cf->fd_out, EH_WRITE );
+				if( u_ringbuf_empty( &cf->output ) )
+					event_delete( ctx, cf->fd_out, EH_WRITE );
+			}
 
 			break;
 
 		case EVENT_READ:
 			{
-				x_printf(ctx,"%s - Read event triggerred for fd = %d\n", ctx->name, fd->fd);
 				size_t bytes;
 				event_bytes( fd->fd, &bytes );
-				if( bytes ) {
 
-					x_printf(ctx,"%s - Read event for fd = %d (%d bytes)\n", ctx->name, fd->fd, bytes);
+				if( bytes ) {
 					char read_buffer[MAX_READ_BUFFER];
 
-					if( bytes >= MAX_READ_BUFFER ) {
+					if( bytes >= MAX_READ_BUFFER )
 						bytes = MAX_READ_BUFFER-1;
-						x_printf(ctx,"%s - WARNING: Truncating read to %d bytes\n",ctx->name, bytes);
-					}
 
 					ssize_t result = event_read( fd->fd, read_buffer, bytes);
-					x_printf(ctx,"%s - Read event returned %d bytes of data\n",ctx->name, bytes);
 
 					if( result >= 0 ) {
 						read_buffer[result] = 0;
@@ -476,19 +464,15 @@ ssize_t exec_handler(context_t *ctx, event_t event, driver_data_t *event_data )
 				} else {
 					x_printf(ctx,"%s - EOF on input. Cleaning up\n", ctx->name);
 					if( fd->fd == cf->fd_in ) {
-						x_printf(ctx,"Child program has terminated\n");
 
-						//x_printf(ctx,"EOF - closing input file descriptor %d\n", cf->fd_in);
 						event_delete( ctx, cf->fd_in, EH_NONE );
 						close( cf->fd_in );
 						cf->fd_in = -1;
 
 						if( cf->state == EXEC_STATE_STOPPING ) {
-							// program termination already signalled
 							if( (cf->flags & (EXEC_RESPAWN|EXEC_TERMINATING)) == EXEC_RESPAWN ) {
 								cf->state = EXEC_STATE_IDLE;
 								cf->pending_action_timestamp = rel_time(0L);
-								//return emit( ctx, EVENT_INIT, DRIVER_DATA_NONE );
 							} else
 								return context_terminate( ctx );
 						} else
@@ -500,14 +484,8 @@ ssize_t exec_handler(context_t *ctx, event_t event, driver_data_t *event_data )
 			break;
 
 		case EVENT_SEND_SIGNAL:
-			x_printf(ctx,"%s - Asked to send a signal to process\n",ctx->name);
-			if( cf->pid > 0 ) {
+			if( cf->pid > 0 )
 				kill( cf->pid, event_data->event_signal );
-#ifndef NDEBUG
-			} else {
-				x_printf(ctx,"%s - No process to signal\n", ctx->name);
-#endif
-			}
 			break;
 
 		case EVENT_SIGNAL:
@@ -520,23 +498,24 @@ ssize_t exec_handler(context_t *ctx, event_t event, driver_data_t *event_data )
 					x_printf(ctx, "PID matches.  cleaning up\n");
 					// disable further events being recognized for this process
 					cf->pid = -1;
-					//x_printf(ctx,"SIGNAL - closing output file descriptor\n");
-					close(cf->fd_out);
-					event_delete( ctx, cf->fd_out, EH_NONE );
+					if( ! cf->tty ) {
+						close(cf->fd_out);
+						event_delete( ctx, cf->fd_out, EH_NONE );
+					}
 					cf->fd_out = -1;
 					// Program termination already signalled
 					if( cf->state == EXEC_STATE_STOPPING ) {
+
 						x_printf(ctx,"state is STOPPING.\n");
-						if( cf->flags & (EXEC_RESPAWN|EXEC_RESTARTING) ) {
+
+						if( ( ! (cf->flags & EXEC_TERMINATING )) && ( cf->flags & (EXEC_RESPAWN|EXEC_RESTARTING))) {
 							cf->flags &= ~(unsigned int)EXEC_RESTARTING;
 							x_printf(ctx,"setting up for respawn after %d seconds.\n",cf->restart_delay);
 							cf->state = EXEC_STATE_IDLE;
 							cf->pending_action_timestamp = rel_time(0L);
-							//return emit( ctx, EVENT_INIT, DRIVER_DATA_NONE );
-						} else if( cf->flags & EXEC_TERMINATING ) {
-							x_printf(ctx,"terminating.");
+						} else
 							return context_terminate( ctx );
-						}
+
 					} else {
 						x_printf(ctx,"Signal before EOF.  Setting state to STOPPING\n");
 						// Process may have terminated, but you cannot assume output has drained.

@@ -45,8 +45,6 @@
 
 int unicorn_init(context_t * ctx)
 {
-	x_printf(ctx,"Hello from UNICORN(%s) INIT!\n", ctx->name);
-
 	unicorn_config_t *cf ;
 
 	if (0 == (cf = (unicorn_config_t *) calloc( sizeof( unicorn_config_t ) , 1 )))
@@ -63,11 +61,10 @@ int unicorn_init(context_t * ctx)
 
 int unicorn_shutdown(context_t * ctx)
 {
-	x_printf(ctx,"Goodbye from UNICORN INIT!\n");
 	if( ctx->data )
 		free( ctx->data );
-	ctx->data = 0;
 
+	ctx->data = 0;
 	return 1;
 }
 
@@ -82,9 +79,6 @@ ssize_t send_unicorn_command( context_t *ctx, cmdHost_t cmd, cmdState_t state, s
 	if( !frame )
 		return -1;
 
-	if (length > 1024) {
-		x_printf(ctx,"\n *\n * WARNING: Buffer is >1024 bytes\n *\n");
-	}
 	frame->magicNo = MAGIC_NUMBER;
 	frame->cmd = cmd;
 	frame->state = state;
@@ -99,150 +93,115 @@ ssize_t send_unicorn_command( context_t *ctx, cmdHost_t cmd, cmdState_t state, s
 	return emit( cf->modem, EVENT_DATA_OUTGOING, &notification );
 }
 
-ssize_t process_unicorn_data( context_t *ctx )
+ssize_t process_unicorn_header( context_t *ctx )
 {
 	unicorn_config_t *cf = ctx->data;
-	int rc = -1;
+
+	switch( cf->msgHdr.cmd ) {
+		case CMD_KEEPALIVE:
+		case CMD_READY:
+		case CMD_STATE:
+			if( cf->msgHdr.state != cf->driver_state ) {
+				cf->last_state_timestamp = cf->last_message;
+				x_printf(ctx,"Handling state change. cf->flags = %x (terminating %s)\n", cf->flags, cf->flags&UNICORN_TERMINATING?"true":"false");
+				if( cf->msgHdr.state == CMD_ST_ONLINE || cf->msgHdr.state == CMD_ST_ONLINE  ) {
+					x_printf(ctx,"Notifying parent that the network state has changed to %s\n",cf->msgHdr.state == CMD_ST_ONLINE ? "online":"offline");
+					context_owner_notify( ctx, CHILD_EVENT, cf->msgHdr.state == CMD_ST_ONLINE ? UNICORN_MODE_ONLINE : UNICORN_MODE_OFFLINE );
+				}
+				if( cf->flags & UNICORN_TERMINATING ) {
+					x_printf(ctx,"State = TERMINATING, need to shutdown driver\n");
+					if( cf->msgHdr.state == CMD_ST_OFFLINE ) {
+						x_printf(ctx,"modem is offline. shutting down driver\n");
+						send_unicorn_command( ctx, CMD_SHUTDOWN, CMD_ST_OFFLINE, 0, 0L );
+#if 0
+						if( cf->modem ) {
+							emit(cf->modem, EVENT_TERMINATE, 0L);
+							context_terminate( ctx );
+						}
+#endif
+					} else {
+						// This may happen multiple times if current state 'in progress'
+						send_unicorn_command( ctx, CMD_DISCONNECT, CMD_ST_OFFLINE, 0, 0L );
+					}
+				} else if( cf->flags & UNICORN_DISABLE ) {
+					if( cf->msgHdr.state == CMD_ST_ONLINE ) {
+						x_printf(ctx,"unicorn is disabled. Shutting down driver\n");
+						send_unicorn_command( ctx, CMD_DISCONNECT, CMD_ST_OFFLINE, 0, 0L );
+					}
+				} else {
+					if( cf->msgHdr.state == CMD_ST_OFFLINE ) {
+						x_printf(ctx,"Sending CONNECT command (Setting WAITING_FOR_CONNECT FLAG)\n");
+						cf->flags |= UNICORN_WAITING_FOR_CONNECT;
+						cf->pending_action_timeout = cf->last_state_timestamp;
+						send_unicorn_command(ctx, CMD_CONNECT, CMD_ST_ONLINE, 0, 0 );
+					} else if( cf->msgHdr.state == CMD_ST_ONLINE ) {
+						x_printf(ctx,"State is Online - resetting WAITING_FOR_CONNECT\n");
+						cf->flags &= ~(unsigned int) UNICORN_WAITING_FOR_CONNECT;
+					}
+				}
+				cf->driver_state = cf->msgHdr.state;
+			}
+			break;
+		case CMD_DATA:
+			cf->flags |= UNICORN_EXPECTING_DATA;
+			cf->data_length = cf->msgHdr.length;
+			cf->last_message = rel_time(0L);
+			break;
+		default:
+			x_printf(ctx,"Not ready to deal with cmd %d\n",cf->msgHdr.cmd);
+			break;
+
+	}
+
+	return 0;
+}
+
+ssize_t process_unicorn_data( context_t *ctx, size_t ready )
+{
+	unicorn_config_t *cf = ctx->data;
+
+	if( ready >= cf->msgHdr.length ) {
+		char *data_buffer = alloca( cf->msgHdr.length );
+		u_ringbuf_read( &cf->input, data_buffer, cf->msgHdr.length );
+
+		driver_data_t notification = { TYPE_DATA, ctx, {} };
+		notification.event_data.bytes = cf->msgHdr.length;
+		notification.event_data.data = data_buffer;
+		emit( ctx->owner, EVENT_DATA_INCOMING, &notification );
+
+		cf->flags &= ~(unsigned int)UNICORN_EXPECTING_DATA;
+	}
+	return 0;
+}
+
+ssize_t process_unicorn_packet( context_t *ctx )
+{
+	unicorn_config_t *cf = ctx->data;
 
 	size_t ready = u_ringbuf_ready( &cf->input );
-	x_printf(ctx,"Buffer currently has %d bytes\n",ready);
 
 	if( !ready )
-		return rc;
+		return -1;
 
 	if( cf->flags & UNICORN_EXPECTING_DATA ) {
-		x_printf(ctx,"Expecting %d bytes of data.. buffer contains %d\n", cf->msgHdr.length, ready );
-		if( ready >= cf->msgHdr.length ) {
-			char *data_buffer = alloca( cf->msgHdr.length );
-			u_ringbuf_read( &cf->input, data_buffer, cf->msgHdr.length );
-			driver_data_t notification = { TYPE_DATA, ctx, {} };
-			notification.event_data.bytes = cf->msgHdr.length;
-			notification.event_data.data = data_buffer;
-			x_printf(ctx,"forwarding unicorn data payload to parent (%d bytes)\n", cf->msgHdr.length );
-			emit( ctx->owner, EVENT_DATA_INCOMING, &notification );
-			cf->flags &= ~(unsigned int)UNICORN_EXPECTING_DATA;
-			return 0;
-		}
+		return process_unicorn_data( ctx, ready );
 	} else {
-		x_printf(ctx,"Check if there is a header in the buffer\n");
 		if( ready >= sizeof( frmHdr_t ) ) {
-			ssize_t _rc = u_ringbuf_read( &cf->input, & cf->msgHdr, sizeof( cf->msgHdr ) );
-#ifdef NDEBUG
-			UNUSED(_rc);
-#endif
-			x_printf(ctx,"ringbuf read returned %d bytes\n",_rc);
-			x_printf(ctx,"magic = %X\n",cf->msgHdr.magicNo );
+			u_ringbuf_read( &cf->input, & cf->msgHdr, sizeof( cf->msgHdr ) );
 			if( MAGIC_NUMBER != cf->msgHdr.magicNo ) {
 				x_printf(ctx,"MAGIC NUMBER FAIL... tossing the baby out with the bathwater..\n");
 				u_ringbuf_init( &cf->input );
 				cf->flags &= ~(unsigned int)UNICORN_EXPECTING_DATA;
-				return 0;
+				return -1;
 			}
 
-			// Record the time, so I don't send unnecessary state requests
 			cf->last_message = rel_time(0L);
-			// handle notifications with no data
-			x_printf(ctx,"Got CMD   %d\n",cf->msgHdr.cmd );
-			x_printf(ctx,"Got STATE %d\n",cf->msgHdr.state );
-
-			switch( cf->msgHdr.cmd ) {
-				case CMD_KEEPALIVE:
-				case CMD_READY:
-				case CMD_STATE:
-					if( cf->msgHdr.state != cf->driver_state ) {
-						cf->last_state_timestamp = cf->last_message;
-						x_printf(ctx,"Handling state change. cf->flags = %x (terminating %s)\n", cf->flags, cf->flags&UNICORN_TERMINATING?"true":"false");
-						if( cf->msgHdr.state == CMD_ST_ONLINE || cf->msgHdr.state == CMD_ST_ONLINE  ) {
-							x_printf(ctx,"Notifying parent that the network state has changed to %s\n",cf->msgHdr.state == CMD_ST_ONLINE ? "online":"offline");
-							context_owner_notify( ctx, CHILD_EVENT, cf->msgHdr.state == CMD_ST_ONLINE ? UNICORN_MODE_ONLINE : UNICORN_MODE_OFFLINE );
-						}
-						if( cf->flags & UNICORN_TERMINATING ) {
-							x_printf(ctx,"State = TERMINATING, need to shutdown driver\n");
-							if( cf->msgHdr.state == CMD_ST_OFFLINE ) {
-								x_printf(ctx,"modem is offline. shutting down driver\n");
-								send_unicorn_command( ctx, CMD_SHUTDOWN, CMD_ST_OFFLINE, 0, 0L );
-#if 0
-								if( cf->modem ) {
-									emit(cf->modem, EVENT_TERMINATE, 0L);
-									context_terminate( ctx );
-								}
-#endif
-							} else {
-								// This may happen multiple times if current state 'in progress'
-								send_unicorn_command( ctx, CMD_DISCONNECT, CMD_ST_OFFLINE, 0, 0L );
-							}
-						} else if( cf->flags & UNICORN_DISABLE ) {
-							if( cf->msgHdr.state == CMD_ST_ONLINE ) {
-								x_printf(ctx,"unicorn is disabled. Shutting down driver\n");
-								send_unicorn_command( ctx, CMD_DISCONNECT, CMD_ST_OFFLINE, 0, 0L );
-							}
-						} else {
-							if( cf->msgHdr.state == CMD_ST_OFFLINE ) {
-								x_printf(ctx,"Sending CONNECT command (Setting WAITING_FOR_CONNECT FLAG)\n");
-								cf->flags |= UNICORN_WAITING_FOR_CONNECT;
-								cf->pending_action_timeout = cf->last_state_timestamp;
-								send_unicorn_command(ctx, CMD_CONNECT, CMD_ST_ONLINE, 0, 0 );
-							} else if( cf->msgHdr.state == CMD_ST_ONLINE ) {
-								x_printf(ctx,"State is Online - resetting WAITING_FOR_CONNECT\n");
-								cf->flags &= ~(unsigned int) UNICORN_WAITING_FOR_CONNECT;
-							}
-						}
-						cf->driver_state = cf->msgHdr.state;
-					} else {
-						x_printf(ctx,"No state change.. doing nothing..\n");
-					}
-					break;
-				case CMD_DATA:
-					cf->flags |= UNICORN_EXPECTING_DATA;
-					cf->data_length = cf->msgHdr.length;
-					cf->last_message = rel_time(0L);
-					break;
-				default:
-					x_printf(ctx,"Not ready to deal with cmd %d\n",cf->msgHdr.cmd);
-					break;
-
-			}
-
-			// indicate that there *was* something in the buffer and I should check for more
-			// This is specifically to avoid the issue caused when a single read received mulitple
-			// separate command frames
-			rc = 0;
+			return process_unicorn_header( ctx );
 		}
 	}
 
 	// return because there is nothing useful in the buffer..
-	return rc;
-}
-
-int check_control_file(context_t *ctx) 
-{
-	unicorn_config_t *cf = (unicorn_config_t *) ctx->data;
-
-	struct stat info;
-
-	int control = stat( cf->control_file, &info );
-
-	if( cf->flags & UNICORN_DISABLE ) {
-		if( control ) {
-			x_printf(ctx,"Control file not present. Adjust run state if needed\n");
-			// ensure connection happens
-			cf->flags &= ~(unsigned int)UNICORN_DISABLE; 
-			if( cf->driver_state == CMD_ST_OFFLINE ) {
-				send_unicorn_command( ctx, CMD_STATE, CMD_ST_OFFLINE, 0, 0L );
-			}
-		}
-	} else {
-		if( !control ) {
-			x_printf(ctx,"Control file present. Adjust run state if needed\n");
-			// ensure connection happens
-			cf->flags |= UNICORN_DISABLE; 
-			if( cf->driver_state == CMD_ST_ONLINE ) {
-				send_unicorn_command( ctx, CMD_DISCONNECT, CMD_ST_OFFLINE,  0, 0L );
-			}
-		}
-	}
-
-	return 0;
+	return -1;
 }
 
 ssize_t unicorn_handler(context_t *ctx, event_t event, driver_data_t *event_data)
@@ -251,26 +210,11 @@ ssize_t unicorn_handler(context_t *ctx, event_t event, driver_data_t *event_data
 	event_child_t *child = 0L;
 
 	unicorn_config_t *cf = (unicorn_config_t *) ctx->data;
-	//x_printf(ctx," - cf->flags = %x (terminating %s)\n", cf->flags, cf->flags&UNICORN_TERMINATING?"true":"false");
-
-	if( event != EVENT_TICK )
-		x_printf(ctx,"event = \"%s\" (%d)\n", event_map[event], event);
-
-	//x_printf(ctx,"event_data = %p\n", event_data);
-	//x_printf(ctx,"event_data->type = %s\n", driver_data_type_map[event_data->type]);
 
 	if (event_data->type == TYPE_DATA)
 		data = &event_data->event_data;
 	else if( event_data->type == TYPE_CHILD )
 		child = & event_data->event_child;
-
-#if 0
-	if( event_data->type == TYPE_DATA ) {
-		x_printf(ctx,"data = %p\n",data);
-		x_printf(ctx,"data->len = %d\n",data->bytes);
-	}
-#endif
-	//x_printf(ctx,"fd = %p\n", fd);
 
 	switch (event) {
 	case EVENT_INIT:
@@ -280,8 +224,6 @@ ssize_t unicorn_handler(context_t *ctx, event_t event, driver_data_t *event_data
 			event_add( ctx, SIGQUIT, EH_SIGNAL );
 			event_add( ctx, SIGTERM, EH_SIGNAL );
 			event_add( ctx, 0, EH_WANT_TICK );
-
-			cf->control_file = config_get_item( ctx->config, "control" );
 
 			const char *endpoint = config_get_item( ctx->config, "endpoint" );
 			if( endpoint )
@@ -293,14 +235,6 @@ ssize_t unicorn_handler(context_t *ctx, event_t event, driver_data_t *event_data
 				context_terminate( ctx );
 				return -1;
 			}
-#if 0
-			if( ctx->owner ) {
-				driver_data_t child_event = { TYPE_CHILD, ctx, {} };
-				child_event.event_child.ctx = ctx;
-				child_event.event_child.status = 0;
-				emit( ctx->owner, EVENT_CHILD, &child_event );
-			}
-#endif
 
 			cf->state = UNICORN_STATE_IDLE;
 		}
@@ -308,8 +242,6 @@ ssize_t unicorn_handler(context_t *ctx, event_t event, driver_data_t *event_data
 
 	case EVENT_TERMINATE:
 		{
-			x_printf(ctx,"Got a termination event.  Cleaning up\n");
-
 			cf->pending_action_timeout = rel_time(0L);
 
 			cf->flags |= UNICORN_TERMINATING; // In process of terminating the modem driver
@@ -336,15 +268,12 @@ ssize_t unicorn_handler(context_t *ctx, event_t event, driver_data_t *event_data
 		// This event is used to signal that the modem driver needs to resync. 
 		// set the 'reconnecting' flag and send a disconnect
 		if( event_data->source == ctx->owner ) {
-			x_printf(ctx,"Got restart event from parent, forcing modem reconnect\n");
 			cf->pending_action_timeout = rel_time(0L);
 			cf->flags |= UNICORN_WAITING_FOR_CONNECT;
 			if( cf->modem )
 				send_unicorn_command( ctx, CMD_DISCONNECT, CMD_ST_OFFLINE, 0, 0L );
-		} else {
-			x_printf(ctx,"Forwarding child restart event to parent..\n");
+		} else
 			emit( ctx->owner, EVENT_RESTART, event_data);
-		}
 		break;
 
 	case EVENT_CHILD:
@@ -377,104 +306,49 @@ ssize_t unicorn_handler(context_t *ctx, event_t event, driver_data_t *event_data
 
 	case EVENT_DATA_INCOMING:
 	case EVENT_DATA_OUTGOING:
-		if (data) {
-			if( event_data->source == cf->modem ) {
-				x_printf(ctx,"Got a DATA event from the modem driver...\n");
+		if( event_data->source == cf->modem ) {
 
-				size_t bytes = data->bytes;
-				size_t offset = 0;
+			size_t bytes = data->bytes;
+			size_t offset = 0;
 
-				while( bytes ) {
-					size_t to_read = u_ringbuf_avail( &cf->input );
-					if( to_read > bytes )
-						to_read = bytes;
-#ifndef NDEBUG
-					else
-						x_printf(ctx,"Got record from %s, but not enough space to store it\n", event_data->source->name);
-#endif
+			while( bytes ) {
 
-					//x_printf(ctx,"moving %d bytes of input data to the ring buffer\n", to_read);
-					u_ringbuf_write( &cf->input, &((char *)data->data)[offset], to_read );
+				size_t to_read = u_ringbuf_avail( &cf->input );
+				if( to_read > bytes )
+					to_read = bytes;
 
-					bytes -= to_read;
-					offset += to_read;
+				u_ringbuf_write( &cf->input, &((char *)data->data)[offset], to_read );
 
-					// process some ring buffer data
-					while(process_unicorn_data(ctx) >= 0);
-				}
+				bytes -= to_read;
+				offset += to_read;
 
-				return (ssize_t) offset;
-			} else {
-				x_printf(ctx, "Got upstream data. sending to modem driver\n");
-				send_unicorn_command( ctx, CMD_DATA, CMD_ST_ONLINE, data->bytes,data->data);
-				return (ssize_t) data->bytes;
+				while(process_unicorn_packet(ctx) >= 0);
 			}
+
+			return (ssize_t) offset;
 		} else {
-			x_printf(ctx,"Got a DATA event from my parent... WITHOUT ANY DATA!!!\n");
+			send_unicorn_command( ctx, CMD_DATA, CMD_ST_ONLINE, data->bytes,data->data);
+			return (ssize_t) data->bytes;
 		}
 
 		break;
 
 	case EVENT_READ:
-#if 0
-		{
-			x_printf(ctx,"Read event triggerred for fd = %d\n", fd->fd);
-			size_t          bytes;
-			int             rc = event_bytes(fd->fd, &bytes);
-#ifdef NDEBUG
-			UNUSED(rc);
-#endif
-			x_printf(ctx,"event_bytes returned %d (%d bytes)\n", rc, bytes);
-			if (bytes) {
-				x_printf(ctx,"Read event for fd = %d (%d bytes)\n", fd->fd, bytes);
-
-				char            read_buffer[MAX_READ_BUFFER];
-
-				if (bytes >= MAX_READ_BUFFER) {
-					bytes = MAX_READ_BUFFER - 1;
-					x_printf(ctx,"WARNING: Truncating read to %d bytes\n", bytes);
-				}
-
-				ssize_t         result = event_read(fd->fd, read_buffer, bytes);
-
-				if (result >= 0) {
-					read_buffer[result] = 0;
-					x_printf(ctx,"Read event returned %d bytes of data\n", bytes);
-					cf->flags |= UNICORN_TERMINATING;
-				} else {
-					x_printf(ctx,"read() returned %d (%s)\n", result, strerror(errno));
-				}
-			} else {
-				x_printf(ctx,"EOF on file descriptor (%d)\n", fd->fd);
-				event_delete(ctx, fd->fd, EH_NONE);
-			}
-
-		}
-#endif
 		break;
 
 	case EVENT_EXCEPTION:
-		//x_printf(ctx,"Got an exception on FD %d\n", fd->fd);
 		break;
 
 	case EVENT_SIGNAL:
 		x_printf(ctx,"Woa! Got a sign from the gods... %d\n", event_data->event_signal);
 		if( event_data->event_signal == SIGQUIT || event_data->event_signal == SIGTERM ) {
 			emit( ctx, EVENT_TERMINATE, 0L );
-#if 0
-			if( cf->modem )
-				emit(cf->modem, EVENT_TERMINATE, 0L);
-			event_delete( ctx, SIGQUIT, EH_SIGNAL );
-			context_terminate( ctx );
-#endif
 		}
 		break;
 
 	case EVENT_TICK:
 		{
 			time_t now = rel_time(0L);
-
-			check_control_file(ctx);
 
 			// Handle case where a massive time shift due to NTP resync causes all timeouts to fire simultaneously
 			if( (now - cf->last_message) > MAXIMUM_SAFE_TIMEDELTA )

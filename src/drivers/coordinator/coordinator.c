@@ -89,35 +89,24 @@ ssize_t coordinator_handler(context_t *ctx, event_t event, driver_data_t *event_
 	switch( event ) {
 		case EVENT_INIT:
 			{
-				event_add( ctx, SIGQUIT, EH_SIGNAL );
-				event_add( ctx, SIGINT, EH_SIGNAL );
-				event_add( ctx, SIGTERM, EH_SIGNAL );
-				event_add( ctx, 0, EH_WANT_TICK );
-
-				x_printf(ctx,"config = %s\n",ctx->config->section);
 				const char *log = config_get_item( ctx->config, "logger" );
 				cf->modem_driver = config_get_item( ctx->config, "modemdriver" );
 				cf->network_driver = config_get_item( ctx->config, "networkdriver" );
+				cf->control_file = config_get_item( ctx->config, "controlfile" );
 
-				x_printf(ctx,"logger = %s\n",log );
+				cf->flags |= COORDINATOR_NETWORK_DISABLE;
 
                 if( log )
                     cf->logger = start_service( log, ctx->config, ctx );
 
-				if( cf->modem_driver )
-					cf->unicorn = start_service( cf->modem_driver, ctx->config, ctx );
-
-                if( ! cf->logger ) {
-                    fprintf(stderr,"Failed to start the logger process\n");
-                    exit (0);
-                }
-
 				cf->state = COORDINATOR_STATE_RUNNING;
+
+				event_alarm_add( ctx, COORDINATOR_CONTROL_CHECK_INTERVAL, ALARM_INTERVAL );
+				check_control_file( ctx );
 			}
 			break;
 
 		case EVENT_LOGGING:
-			// Forward logging messages to the logger
 			emit( cf->logger, event, event_data );
 			break;
 
@@ -125,89 +114,78 @@ ssize_t coordinator_handler(context_t *ctx, event_t event, driver_data_t *event_
 			if( source == cf->unicorn ) {
 				if( event_data->event_child.action == CHILD_EVENT ) {
 					x_printf(ctx,"Unicorn driver notifying me that the modem driver has restarted.. terminating network driver\n");
-					emit( cf->network, EVENT_TERMINATE, 0L );
+					if( cf->network )
+						emit( cf->network, EVENT_TERMINATE, 0L );
 				}
 			}
 			break;
 
 		case EVENT_CHILD:
-			x_printf(ctx,"Got a message from a child (%s:%d).. probably starting\n", child->ctx->name, child->action);
-			if( cf->logger )
-				logger( cf->logger, ctx, "Child %s entered state %d\n", child->ctx->name, child->action );
-
 			if( child->ctx == cf->unicorn ) {
-				if( child->action == CHILD_STOPPED ) {
-					x_printf(ctx,"Unicorn driver has exited.  Terminating\n");
-					cf->unicorn = 0L;
-					cf->flags &= ~(unsigned int)COORDINATOR_MODEM_UP;
-					context_terminate( ctx );
-				} else if( child->action == CHILD_EVENT ) {
-					x_printf(ctx,"Got CHILD_EVENT from %s:  event = %d\n",child->ctx->name, child->status );
-					if( child->status == UNICORN_MODE_ONLINE ) {
-						cf->flags |= COORDINATOR_MODEM_ONLINE;
-						if( cf->network ) {
-							// Restart network driver maybe
-							x_printf(ctx,"Modem has come online.  network driver is already running.. It should probably be restart\n");
-							uint8_t sig = SIGKILL;
-							driver_data_t notification = { TYPE_CUSTOM, ctx, {} };
-							notification.event_custom = &sig;
-							emit( cf->network, EVENT_RESTART, &notification );
-							// this probably won't restart pppd automatically yet...
-						} else {
-							x_printf(ctx,"Calling start_service(%s)\n",cf->network_driver);
-							cf->network = start_service( cf->network_driver, ctx->config, ctx );
-							if( !cf->network ) {
-								x_printf(ctx,"Network driver %s failed to start. Abandoning.\n", cf->network_driver);
-								cf->flags |= COORDINATOR_TERMINATING;
-							} else {
-								x_printf(ctx,"Network driver %s is started\n",cf->network_driver );
-								printf("cf->network->name = %s\n",cf->network->name );
-							}
+				switch( child->action ) {
+					case CHILD_STOPPED:
+						x_printf(ctx,"Unicorn driver has exited.  Terminating\n");
+						cf->unicorn = 0L;
+						cf->flags &= ~(unsigned int)COORDINATOR_MODEM_UP;
+						if( (cf->flags & COORDINATOR_TERMINATING) && !cf->network )
+							context_terminate( ctx );
+						break;
+					case CHILD_EVENT:
+						switch( child->status ) {
+							case UNICORN_MODE_ONLINE:
+								cf->flags |= COORDINATOR_MODEM_ONLINE;
+								if( cf->network ) {
+									// Restart network driver maybe
+									uint8_t sig = SIGKILL;
+									driver_data_t notification = { TYPE_CUSTOM, ctx, {} };
+									notification.event_custom = &sig;
+									emit( cf->network, EVENT_RESTART, &notification );
+								} else {
+									cf->network = start_service( cf->network_driver, ctx->config, ctx );
+									if( !cf->network ) 
+										cf->flags |= COORDINATOR_TERMINATING;
+								}
+								break;
+							case UNICORN_MODE_OFFLINE:
+								cf->flags &= ~(unsigned int)COORDINATOR_MODEM_ONLINE;
+								if( cf->network )
+									emit( cf->network, EVENT_TERMINATE, 0L );
+								break;
 						}
-					} else {
-						cf->modem_timestamp = rel_time(0L);
-						cf->flags &= ~(unsigned int)COORDINATOR_MODEM_ONLINE;
-						if( cf->network ) {
-							// Terminate existing network driver
-							x_printf(ctx,"Modem driver reports connection down.  Terminating network driver\n");
-							emit( cf->network, EVENT_TERMINATE, 0L );
-						}
-						x_printf(ctx,"Unicord driver state updated to %s\n", child->status == UNICORN_MODE_ONLINE?"online":"offline");
-					}
+		
+						break;
+					default:
+						break;
 				}
-			} else if( child->ctx == cf->network ) {
-				x_printf(ctx,"Notification from network driver\n");
-				if( child->action == CHILD_STOPPED ) {
-					x_printf(ctx,"Network drive Down\n");
-					cf->flags &= ~(unsigned int)COORDINATOR_NETWORK_UP;
-					cf->network = 0L;
-					// why did it stop?  killed? disconnecting? network down?
-					driver_data_t notification = { TYPE_CHILD, ctx, {} };
-					notification.event_child.ctx = ctx;
-					notification.event_child.action = CHILD_EVENT;
-					notification.event_child.status = 0;
-					emit(cf->unicorn, EVENT_RESTART, &notification );
-				} else if( child->action == CHILD_STARTED ) {
-					x_printf(ctx,"Network drive UP \n");
-					cf->flags |= COORDINATOR_NETWORK_UP;
+			}
+
+			if( child->ctx == cf->network ) {
+				switch( child->action ) {
+					case CHILD_STARTED:
+						cf->flags |= COORDINATOR_NETWORK_UP;
+						break;
+					case CHILD_STOPPED:
+						cf->flags &= ~(unsigned int)COORDINATOR_NETWORK_UP;
+						cf->network = 0L;
+
+						if( cf->unicorn ) {
+							emit( cf->unicorn, EVENT_RESTART, 0l );
+						} else if (cf->flags & COORDINATOR_TERMINATING) 
+							context_terminate(ctx);
+						break;
+					default:
+						break;
 				}
 			}
 			break;
 
 		case EVENT_TERMINATE:
-			x_printf(ctx,"Got a termination event.  Cleaning up\n");
-			x_printf(ctx,"child process will get EOF..\n");
-			
-		
 			if( cf->network )
 				emit( cf->network, EVENT_TERMINATE, 0L );
 
 			if( cf->unicorn )
 				emit( cf->network, EVENT_TERMINATE, 0L );
 		
-			// If there is no child process, don't wait for it to terminate
-			cf->termination_timestamp = rel_time(0L);
-
 			if( cf->state == COORDINATOR_STATE_RUNNING ) {
 				cf->flags |= COORDINATOR_TERMINATING;
 			} else
@@ -216,81 +194,49 @@ ssize_t coordinator_handler(context_t *ctx, event_t event, driver_data_t *event_
 
 		case EVENT_DATA_INCOMING:
 		case EVENT_DATA_OUTGOING:
-			if( data ) {
-				x_printf(ctx,"Got a DATA event from %s ...\n",source->name);
-				x_printf(ctx,"bytes = %d\n",data->bytes );
-				x_printf(ctx,"buffer = %s\n", (char *) data->data );
-				x_printf(ctx,"buffer[%d] = %d\n",data->bytes,((char *)data->data)[data->bytes]);
-				if( source == cf->unicorn ) {
-					x_printf(ctx, "Forwarding unicorn data to network driver\n");
-					if( cf->network )
-						emit( cf->network, event, event_data );
-					else
-						x_printf(ctx, "... but network driver is down..\n");
-				} else if( source == cf->network ) {
-					x_printf(ctx, "Forwarding network data to unicorn driver\n");
-					if( cf->unicorn )
-						emit( cf->unicorn, event, event_data );
-					else
-						x_printf(ctx, "... but unicorn driver is down..\n");
-				}
-			} else {
-				x_printf(ctx,"Got a DATA event from my parent... WITHOUT ANY DATA!!!\n");
-			}
-
+			if( data )
+				if( source == cf->unicorn && cf->network )
+					return emit( cf->network, event, event_data );
+				if( source == cf->network && cf->unicorn )
+					return emit( cf->unicorn, event, event_data );
 			break;
 
-		case EVENT_READ:
-#if 0
-			{
-				event_request_t *fd = & event_data->event_request;
-				x_printf(ctx,"read event here..\n");
-				char temp;
-				size_t sp = 0;
-				event_bytes( fd->fd, &sp );
-				if( sp > 0 )
-					read(fd->fd , &temp, 1);
-				else {
-					x_printf(ctx,"EOF on stdin...\n");
-					kill(0,SIGKILL);
-				}
-			}
-#endif
+		case EVENT_ALARM:
+			check_control_file(ctx);
 			break;
-
-		case EVENT_EXCEPTION:
-			break;
-
-		case EVENT_SIGNAL:
-			x_printf(ctx,"Woa! Got a sign from the gods... %d\n",event_data->event_signal);
-			if( event_data->event_signal == SIGTERM ) {
-				kill(0,SIGKILL);
-			}
-			break;
-
-		case EVENT_TICK:
-			{
-				char buffer[64];
-				time_t now = rel_time(0L);
-				strftime(buffer,64,"%T",localtime(&now));
-				//x_printf(ctx,"%s:   ** Tick (%ld seconds) **\n", buffer, cf->last_tick ? rel_time(0L)-cf->last_tick : -1);
-				rel_time( & cf->last_tick );
-				if( cf->flags & COORDINATOR_TERMINATING ) {
-					x_printf(ctx,"Been terminating for %ld useconds...\n",rel_time(0L) - cf->termination_timestamp );
-					if(( rel_time(0L) - cf->termination_timestamp ) > (PROCESS_TERMINATION_TIMEOUT*2) ) {
-						x_printf(ctx,"REALLY Pushing it along with a SIGKILL\n");
-					} else if(( rel_time(0L) - cf->termination_timestamp ) > PROCESS_TERMINATION_TIMEOUT ) {
-						x_printf(ctx,"Pushing it along with a SIGTERM\n");
-					}
-				}
-			}
-			break;
-
-        case EVENT_NONE:
-        case EVENT_WRITE:
-        case EVENT_MAX:
+		
         default:
             x_printf(ctx,"\n *\n *\n * Emitted some kind of event \"%s\" (%d)\n *\n *\n", event_map[event], event);
     }
     return 0;
 }
+
+int check_control_file(context_t *ctx) 
+{
+	coordinator_config_t *cf = (coordinator_config_t *) ctx->data;
+
+	struct stat info;
+
+	int control = stat( cf->control_file, &info );
+
+	if( cf->flags & COORDINATOR_NETWORK_DISABLE ) {
+		if( control ) {
+			// ensure connection happens
+			cf->flags &= ~(unsigned int)COORDINATOR_NETWORK_DISABLE; 
+			if( cf->modem_driver )
+				cf->unicorn = start_service( cf->modem_driver, ctx->config, ctx );
+		}
+	} else {
+		if( !control ) {
+			// ensure connection happens
+			cf->flags |= COORDINATOR_NETWORK_DISABLE; 
+			if( cf->network )
+				emit( cf->network, EVENT_TERMINATE, 0L );
+			if( cf->unicorn )
+				emit( cf->unicorn, EVENT_TERMINATE, 0L );
+		}
+	}
+
+	return 0;
+}
+

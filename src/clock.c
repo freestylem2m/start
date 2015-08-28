@@ -195,7 +195,6 @@ time_t rel_time(time_t *ptr)
 	clock_gettime( CLOCK_MONOTONIC, & reltime );
 
 	time_t _time = (reltime.tv_sec * 1000) + (reltime.tv_nsec / 1000000 );
-	//printf("Turned %lds + %ldnsec into %ld\n",reltime.tv_sec,reltime.tv_nsec,_time);
 
 	if( ptr )
 		*ptr = _time;

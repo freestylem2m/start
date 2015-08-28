@@ -289,8 +289,6 @@ config_entry_t *add_config_entry( config_t *section, const char *item, const cha
 	config_entry_t **e = &section->config;
 	int match = -1;
 
-	//printf("Adding config entry %s->%s = %s\n",section->section, item, value );
-
 	while( (*e) && ((match = strncasecmp( (*e)->item, item, LINE_MAX ))) < 0 )
 		e = &(*e)->next;
 

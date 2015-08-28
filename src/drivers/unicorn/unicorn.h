@@ -129,8 +129,6 @@ typedef struct unicorn_config_t {
 	time_t pending_action_timeout;
 	time_t last_state_timestamp;
 
-	const char *control_file;
-
 	frmHdr_t  msgHdr;
 	size_t   data_length;
 	uint16_t driver_state;

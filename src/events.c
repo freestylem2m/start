@@ -175,7 +175,6 @@ int event_alarm_add( context_t *ctx, time_t interval, event_alarm_flags_t flags 
 {
 	int alarm_fd = alarm_add( ctx, interval, flags );
 
-	printf("Event_alarm_add() called.  Alarm == %d\n",alarm_fd);
 	if( event_add( ctx, alarm_fd, EH_TIMER ) )
 		return alarm_fd;
 

@@ -7,7 +7,7 @@
 #define FD_READ 0
 #define FD_WRITE 1
 
-#define PROCESS_TERMINATION_TIMEOUT 60*1000
+#define COORDINATOR_CONTROL_CHECK_INTERVAL  3000
 
 typedef enum {
 	COORDINATOR_STATE_IDLE,
@@ -22,6 +22,7 @@ typedef enum {
 	COORDINATOR_NETWORK_UP  = 2,
 	COORDINATOR_MODEM_UP    = 4,
 	COORDINATOR_MODEM_ONLINE = 8,
+	COORDINATOR_NETWORK_DISABLE = 16,
 } coordinator_flags_t;
 
 typedef struct coordinator_config_t {
@@ -31,16 +32,18 @@ typedef struct coordinator_config_t {
 	const char *modem_driver;
 	const char *network_driver;
 
-	time_t last_tick;
-	time_t termination_timestamp;
-	time_t modem_timestamp;
+	const char *control_file;
+
     context_t *logger;
     context_t *unicorn;
     context_t *network;
     //context_t *vpn;
+	
+	int        timer_fd;
 } coordinator_config_t;
 
 extern int coordinator_init(context_t *);
 extern int coordinator_shutdown(context_t *);
 extern ssize_t coordinator_handler(context_t *, event_t event, driver_data_t *event_data);
+extern int check_control_file(context_t *ctx) ;
 #endif

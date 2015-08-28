@@ -31,6 +31,7 @@ typedef struct exec_config_t {
 	int pid;
 	int fd_in;
 	int fd_out;
+	int tty;
 	int restart_delay;
 	time_t last_tick;
 	time_t pending_action_timestamp;

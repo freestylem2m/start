@@ -71,11 +71,6 @@ ssize_t console_handler(context_t *ctx, event_t event, driver_data_t *event_data
 
 	console_config_t *cf = (console_config_t *) ctx->data;
 
-	x_printf(ctx,"Got an event from %s\n",event_data->source?event_data->source->name:"nowhere");
-	x_printf(ctx,"event = \"%s\" (%d)\n", event_map[event], event);
-	x_printf(ctx,"event_data = %p\n", event_data);
-	x_printf(ctx,"event_data->type = %s\n", driver_data_type_map[event_data->type]);
-
 	if (event_data && event_data->type == TYPE_FD)
 		fd = &event_data->event_request;
 	else if( event_data->type == TYPE_DATA )
