@@ -75,6 +75,80 @@ const char *config_get_item( const config_t *section, const char *item )
 	return 0L;
 }
 
+// Used for applying scale factors to integer values
+typedef struct _scalefactor {
+	char c;
+	int scale;
+} scalefactor;
+
+// Scale factors.  kmg are multipes of 1000, KMG are multipls of 1024. 's' is seconds (as in 1000 ms)
+scalefactor binary_scale[] = {
+	{ 'k', 1000 },
+	{ 'm', 1000000 },
+	{ 's', 1000 },
+	{ 'g', 1000000000 },
+	{ 'K', 1024 },
+	{ 'M', 1024*1024 },
+	{ 'G', 1024*1024*1024 },
+	{ 0x00, 0 }
+};
+
+scalefactor time_scale[] = {
+	{ 's', 1000 },
+	{ 'm', 60*1000 },
+	{ 'h', 60*60*1000 },
+	{ 'd', 24*60*60*1000 },
+	{ 0x00, 0 }
+};
+
+unsigned int config_get_binval(const config_t *section, const char *item)
+{
+	char     *i = (char *) config_get_item(section, item);
+
+	long int val = strtol(i, &i, 10);
+
+	while( i && *i ) {
+		scalefactor *s = binary_scale;
+		while( s->c ) {
+			if( s->c == *i )
+				val *= s->scale;
+			s++;
+		}
+		i++;
+	}
+
+	return (unsigned int) val;
+}
+
+int config_get_intval(const config_t *section, const char *item)
+{
+	char     *i = (char *) config_get_item(section, item);
+
+	if( i )
+		return (int) strtol(i, 0L, 10);
+
+	return -1;
+}
+
+unsigned int config_get_timeval(const config_t *section, const char *item)
+{
+	char     *i = (char *) config_get_item(section, item);
+
+	long int val = strtol(i, &i, 10);
+
+	while( i && *i ) {
+		scalefactor *s = time_scale;
+		while( s->c ) {
+			if( s->c == *i )
+				val *= s->scale;
+			s++;
+		}
+		i++;
+	}
+
+	return (unsigned int) val;
+}
+
 int config_istrue(const config_t * section, const char *item)
 {
 	const char     *i = config_get_item(section, item);

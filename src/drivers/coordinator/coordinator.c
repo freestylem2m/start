@@ -94,12 +94,12 @@ ssize_t coordinator_handler(context_t *ctx, event_t event, driver_data_t *event_
 				event_add( ctx, SIGTERM, EH_SIGNAL );
 				event_add( ctx, 0, EH_WANT_TICK );
 
-				d_printf("config = %s\n",ctx->config->section);
+				x_printf(ctx,"config = %s\n",ctx->config->section);
 				const char *log = config_get_item( ctx->config, "logger" );
 				cf->modem_driver = config_get_item( ctx->config, "modemdriver" );
 				cf->network_driver = config_get_item( ctx->config, "networkdriver" );
 
-				d_printf("logger = %s\n",log );
+				x_printf(ctx,"logger = %s\n",log );
 
                 if( log )
                     cf->logger = start_service( log, ctx->config, ctx );
@@ -131,7 +131,7 @@ ssize_t coordinator_handler(context_t *ctx, event_t event, driver_data_t *event_
 			break;
 
 		case EVENT_CHILD:
-			d_printf("Got a message from a child (%s:%d).. probably starting\n", child->ctx->name, child->action);
+			x_printf(ctx,"Got a message from a child (%s:%d).. probably starting\n", child->ctx->name, child->action);
 			if( cf->logger )
 				logger( cf->logger, ctx, "Child %s entered state %d\n", child->ctx->name, child->action );
 
@@ -147,20 +147,20 @@ ssize_t coordinator_handler(context_t *ctx, event_t event, driver_data_t *event_
 						cf->flags |= COORDINATOR_MODEM_ONLINE;
 						if( cf->network ) {
 							// Restart network driver maybe
-							d_printf("Modem has come online.  network driver is already running.. It should probably be restart\n");
+							x_printf(ctx,"Modem has come online.  network driver is already running.. It should probably be restart\n");
 							uint8_t sig = SIGKILL;
 							driver_data_t notification = { TYPE_CUSTOM, ctx, {} };
 							notification.event_custom = &sig;
 							emit( cf->network, EVENT_RESTART, &notification );
 							// this probably won't restart pppd automatically yet...
 						} else {
-							d_printf("Calling start_service(%s)\n",cf->network_driver);
+							x_printf(ctx,"Calling start_service(%s)\n",cf->network_driver);
 							cf->network = start_service( cf->network_driver, ctx->config, ctx );
 							if( !cf->network ) {
-								d_printf("Network driver %s failed to start. Abandoning.\n", cf->network_driver);
+								x_printf(ctx,"Network driver %s failed to start. Abandoning.\n", cf->network_driver);
 								cf->flags |= COORDINATOR_TERMINATING;
 							} else {
-								d_printf("Network driver %s is started\n",cf->network_driver );
+								x_printf(ctx,"Network driver %s is started\n",cf->network_driver );
 								printf("cf->network->name = %s\n",cf->network->name );
 							}
 						}
@@ -169,10 +169,10 @@ ssize_t coordinator_handler(context_t *ctx, event_t event, driver_data_t *event_
 						cf->flags &= ~(unsigned int)COORDINATOR_MODEM_ONLINE;
 						if( cf->network ) {
 							// Terminate existing network driver
-							d_printf("Modem driver reports connection down.  Terminating network driver\n");
+							x_printf(ctx,"Modem driver reports connection down.  Terminating network driver\n");
 							emit( cf->network, EVENT_TERMINATE, 0L );
 						}
-						d_printf("Unicord driver state updated to %s\n", child->status == UNICORN_MODE_ONLINE?"online":"offline");
+						x_printf(ctx,"Unicord driver state updated to %s\n", child->status == UNICORN_MODE_ONLINE?"online":"offline");
 					}
 				}
 			} else if( child->ctx == cf->network ) {
@@ -195,8 +195,8 @@ ssize_t coordinator_handler(context_t *ctx, event_t event, driver_data_t *event_
 			break;
 
 		case EVENT_TERMINATE:
-			d_printf("Got a termination event.  Cleaning up\n");
-			d_printf("child process will get EOF..\n");
+			x_printf(ctx,"Got a termination event.  Cleaning up\n");
+			x_printf(ctx,"child process will get EOF..\n");
 			
 		
 			if( cf->network )
@@ -235,7 +235,7 @@ ssize_t coordinator_handler(context_t *ctx, event_t event, driver_data_t *event_
 						x_printf(ctx, "... but unicorn driver is down..\n");
 				}
 			} else {
-				d_printf("Got a DATA event from my parent... WITHOUT ANY DATA!!!\n");
+				x_printf(ctx,"Got a DATA event from my parent... WITHOUT ANY DATA!!!\n");
 			}
 
 			break;
@@ -244,14 +244,14 @@ ssize_t coordinator_handler(context_t *ctx, event_t event, driver_data_t *event_
 #if 0
 			{
 				event_request_t *fd = & event_data->event_request;
-				d_printf("read event here..\n");
+				x_printf(ctx,"read event here..\n");
 				char temp;
 				size_t sp = 0;
 				event_bytes( fd->fd, &sp );
 				if( sp > 0 )
 					read(fd->fd , &temp, 1);
 				else {
-					d_printf("EOF on stdin...\n");
+					x_printf(ctx,"EOF on stdin...\n");
 					kill(0,SIGKILL);
 				}
 			}
@@ -262,7 +262,7 @@ ssize_t coordinator_handler(context_t *ctx, event_t event, driver_data_t *event_
 			break;
 
 		case EVENT_SIGNAL:
-			d_printf("Woa! Got a sign from the gods... %d\n",event_data->event_signal);
+			x_printf(ctx,"Woa! Got a sign from the gods... %d\n",event_data->event_signal);
 			if( event_data->event_signal == SIGTERM ) {
 				kill(0,SIGKILL);
 			}
@@ -273,14 +273,14 @@ ssize_t coordinator_handler(context_t *ctx, event_t event, driver_data_t *event_
 				char buffer[64];
 				time_t now = rel_time(0L);
 				strftime(buffer,64,"%T",localtime(&now));
-				//d_printf("%s:   ** Tick (%ld seconds) **\n", buffer, cf->last_tick ? rel_time(0L)-cf->last_tick : -1);
+				//x_printf(ctx,"%s:   ** Tick (%ld seconds) **\n", buffer, cf->last_tick ? rel_time(0L)-cf->last_tick : -1);
 				rel_time( & cf->last_tick );
 				if( cf->flags & COORDINATOR_TERMINATING ) {
-					d_printf("Been terminating for %ld useconds...\n",rel_time(0L) - cf->termination_timestamp );
+					x_printf(ctx,"Been terminating for %ld useconds...\n",rel_time(0L) - cf->termination_timestamp );
 					if(( rel_time(0L) - cf->termination_timestamp ) > (PROCESS_TERMINATION_TIMEOUT*2) ) {
-						d_printf("REALLY Pushing it along with a SIGKILL\n");
+						x_printf(ctx,"REALLY Pushing it along with a SIGKILL\n");
 					} else if(( rel_time(0L) - cf->termination_timestamp ) > PROCESS_TERMINATION_TIMEOUT ) {
-						d_printf("Pushing it along with a SIGTERM\n");
+						x_printf(ctx,"Pushing it along with a SIGTERM\n");
 					}
 				}
 			}
@@ -290,7 +290,7 @@ ssize_t coordinator_handler(context_t *ctx, event_t event, driver_data_t *event_
         case EVENT_WRITE:
         case EVENT_MAX:
         default:
-            d_printf("\n *\n *\n * Emitted some kind of event \"%s\" (%d)\n *\n *\n", event_map[event], event);
+            x_printf(ctx,"\n *\n *\n * Emitted some kind of event \"%s\" (%d)\n *\n *\n", event_map[event], event);
     }
     return 0;
 }

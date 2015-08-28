@@ -52,10 +52,10 @@ int alarm_delete_list( int i )
 {
 	event_alarm_t *n = &alarm_table[0];
 
-	while( n->next_event != i )
-		n = & alarm_table[n->next_event];
+	while( n->event_next != i )
+		n = & alarm_table[n->event_next];
 
-	n->next_event = alarm_table[ i ].next_event;
+	n->event_next = alarm_table[ i ].event_next;
 	return i;
 }
 
@@ -64,18 +64,18 @@ int alarm_insert_list( int i )
 	// Scan table looking for a place to insert.  This only scans existing
 	// entries, stopping at EOL or when timestamp > new alarm
 	event_alarm_t *j = & alarm_table[0];
-	while( j->next_event ) {
-		if( alarm_table[j->next_event].event_time > alarm_table[i].event_time )
+	while( j->event_next ) {
+		if( alarm_table[j->event_next].event_time > alarm_table[i].event_time )
 			break;
-		j = & alarm_table[ j->next_event ];
+		j = & alarm_table[ j->event_next ];
 	}
 
 	// If this is the end of the list, insert after, otherwise, its always before
-	if( j->next_event && alarm_table[ j->next_event ].event_time > alarm_table[i].event_time ) {
-		alarm_table[i].next_event = j->next_event;
-		j->next_event = i;
+	if( j->event_next && alarm_table[ j->event_next ].event_time > alarm_table[i].event_time ) {
+		alarm_table[i].event_next = j->event_next;
+		j->event_next = i;
 	} else
-		j->next_event = i;
+		j->event_next = i;
 
 	return i;
 }
@@ -105,7 +105,7 @@ int alarm_add(context_t *ctx, time_t interval, event_alarm_flags_t flags)
 	alarm_table[i].flags = flags;
 	alarm_table[i].event_time = now + interval;
 	alarm_table[i].ctx = ctx;
-	alarm_table[i].next_event = 0;
+	alarm_table[i].event_next = 0;
 	
 	return alarm_insert_list( i );
 }
@@ -127,16 +127,16 @@ int alarm_delete(context_t *ctx, int key)
 
 /*
  * Get the time offset to the next alarm.   This is essentially the time to
- * the first entry in the list (alarm_table[0].next_event point to first event)
+ * the first entry in the list (alarm_table[0].event_next point to first event)
  */
-time_t alarm_getnext(void)
+long alarm_getnext(void)
 {
 	int i=0;
-	if( alarm_table[i].next_event ) {
-		i = alarm_table[i].next_event;
+	if( alarm_table[i].event_next ) {
+		i = alarm_table[i].event_next;
 		return alarm_table[i].event_time;
 	}
-	return 0;
+	return -1;
 }
 
 /*
@@ -165,14 +165,15 @@ int alarm_update_interval(context_t *ctx, int key )
 	event_alarm_t *p;
 	time_t now = rel_time(0L);
 
-	if( (key > MAX_ALARM) || (!alarm_table[key].flags) || (alarm_table[key].ctx != ctx))
+	if( (key > MAX_ALARM) || (!(alarm_table[key].flags & ALARM_INTERVAL)) || (alarm_table[key].ctx != ctx))
 		return -1;
 
 	p = &alarm_table[key] ;
 	p->event_time = now + p->duration;
+	p->flags &= ~(unsigned int)ALARM_FIRED;
 
 	// short circuit list reording of possible
-	if( (! p->next_event) || (p->duration <= alarm_table[p->next_event].event_time) )
+	if( (! p->event_next) || (p->duration <= alarm_table[p->event_next].event_time) )
 		return key;
 
 	alarm_delete_list( key );
@@ -194,7 +195,7 @@ time_t rel_time(time_t *ptr)
 	clock_gettime( CLOCK_MONOTONIC, & reltime );
 
 	time_t _time = (reltime.tv_sec * 1000) + (reltime.tv_nsec / 1000000 );
-	printf("Turned %lds + %ldnsec into %ld\n",reltime.tv_sec,reltime.tv_nsec,_time);
+	//printf("Turned %lds + %ldnsec into %ld\n",reltime.tv_sec,reltime.tv_nsec,_time);
 
 	if( ptr )
 		*ptr = _time;
@@ -221,7 +222,7 @@ time_t rel_time(time_t *ptr)
 
 int event_timer_create( event_timer_t *event )
 {
-	if( event && event->tm.tv_nsec == 0 && event->tm.tv_sec == 0 )
+	if( (! event) || ( event->tm.tv_nsec == 0 && event->tm.tv_sec == 0 ))
 		return -1;
 
 	int fd;
@@ -270,7 +271,7 @@ void dump_alarm_table(void)
 	for( i = 0; i < MAX_ALARM; i++ )
 	{
 		if( i==0 || alarm_table[i].flags )
-			printf("%d (%ld/%ld) ->%d\n",i, alarm_table[i].duration,alarm_table[i].event_time, alarm_table[i].next_event);
+			printf("%d (%ld/%ld) ->%d\n",i, alarm_table[i].duration,alarm_table[i].event_time, alarm_table[i].event_next);
 	}
 }
 

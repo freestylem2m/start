@@ -47,7 +47,7 @@
 
 int logger_init(context_t *context)
 {
-	//d_printf("Hello from LOGGER INIT!\n");
+	//x_printf(ctx,"Hello from LOGGER INIT!\n");
 
 	// register "emit" as the event handler of choice
 	
@@ -71,7 +71,7 @@ int logger_shutdown(context_t *ctx)
 {
 	logger_config_t *cf = (logger_config_t *) ctx->data;
 
-	d_printf("Goodbye from LOGGER!\n");
+	x_printf(ctx,"Goodbye from LOGGER!\n");
 
 	if( cf->logger ) {
 		context_terminate( cf->logger );
@@ -97,7 +97,7 @@ ssize_t logger_handler(context_t *ctx, event_t event, driver_data_t *event_data 
 
 	logger_config_t *cf = (logger_config_t *) ctx->data;
 
-	//d_printf("> Event \"%s\" (%d)\n", event_map[event], event);
+	//x_printf(ctx,"> Event \"%s\" (%d)\n", event_map[event], event);
 
 	if( event_data->type == TYPE_DATA )
 		data = & event_data->event_data;
@@ -158,7 +158,7 @@ ssize_t logger_handler(context_t *ctx, event_t event, driver_data_t *event_data 
 			break;
 
 		case EVENT_SIGNAL:
-			d_printf("Woa! Got a sign from the gods... %d\n",event_data->event_signal);
+			x_printf(ctx,"Woa! Got a sign from the gods... %d\n",event_data->event_signal);
 			break;
 
 		case EVENT_TICK:
@@ -166,13 +166,13 @@ ssize_t logger_handler(context_t *ctx, event_t event, driver_data_t *event_data 
 				char buffer[64];
 				time_t now = rel_time(0L);
 				strftime(buffer,64,"%T",localtime(&now));
-				d_printf("%s:   ** Tick (%ld useconds) **\n", buffer, cf->last_tick ? rel_time(0L)-cf->last_tick : -1);
+				x_printf(ctx,"%s:   ** Tick (%ld useconds) **\n", buffer, cf->last_tick ? rel_time(0L)-cf->last_tick : -1);
 				rel_time( & cf->last_tick );
 			}
 			break;
 
 		default:
-			//d_printf("\n *\n *\n * Emitted some kind of event \"%s\" (%d)\n *\n *\n", event_map[event], event);
+			//x_printf(ctx,"\n *\n *\n * Emitted some kind of event \"%s\" (%d)\n *\n *\n", event_map[event], event);
 			break;
 	}
 	return 0;
@@ -195,7 +195,7 @@ void logger(context_t *ctx, context_t *source, char *fmt, ...) {
 	} else {
 		time_t spec = time(0L);
 		char spec_buffer[32];
-		d_printf("No Logging context, defaulting to stderr\n");
+		x_printf(ctx,"No Logging context, defaulting to stderr\n");
 		fwrite( spec_buffer, strftime(spec_buffer,32,"%b %e %H:%M:%S: ", localtime( &spec )), 1, stderr );
 		fwrite( log_buffer, strlen(log_buffer), 1, stderr );
 	}

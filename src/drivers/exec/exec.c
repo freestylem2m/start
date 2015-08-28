@@ -54,7 +54,7 @@
 
 int exec_init(context_t *ctx)
 {
-	d_printf("%s Hello from EXEC INIT!\n", ctx->name);
+	x_printf(ctx,"%s Hello from EXEC INIT!\n", ctx->name);
 
 	// register "emit" as the event handler of choice
 	
@@ -108,13 +108,13 @@ int exec_shutdown(context_t *ctx)
 
 char *process_command( char *cmd, char *exe, char **vec )
 {
-	//d_printf("cmd = %s\n", cmd);
+	//x_printf(ctx,"cmd = %s\n", cmd);
 
 	char           *cp = cmd;
 	int             px = 0;
 
 	while (cp && *cp && px < (CMD_ARGS_MAX - 1)) {
-		//d_printf("cp = %s\n", cp);
+		//x_printf(ctx,"cp = %s\n", cp);
 		size_t          seg = strcspn(cp, " \t\r\n\"'$");
 		if (seg)
 			vec[px++] = cp;
@@ -207,7 +207,7 @@ int exec_launch( context_t *ctx, int use_tty )
 	exec_config_t *cf = (exec_config_t *) ctx->data;
 
 	if( !path ) {
-		d_printf("%s - Failing with unable-to-find-file error\n", ctx->name);
+		x_printf(ctx,"%s - Failing with unable-to-find-file error\n", ctx->name);
 		free(cmd);
 		return -1;
 	}
@@ -305,7 +305,7 @@ int exec_launch( context_t *ctx, int use_tty )
 			//close(fd);
 		
 		execv(exe,vec);
-		d_printf("%s - Execv failed!\n", ctx->name);
+		x_printf(ctx,"%s - Execv failed!\n", ctx->name);
 		exit(-128);
 	}
 
@@ -349,7 +349,7 @@ ssize_t exec_handler(context_t *ctx, event_t event, driver_data_t *event_data )
 					emit(ctx->owner, EVENT_RESTART, &notification);
 				}
 				else {
-					d_printf("%s - exec() failed to start process\n", ctx->name);
+					x_printf(ctx,"%s - exec() failed to start process\n", ctx->name);
 					cf->state = EXEC_STATE_ERROR;
 					return context_terminate(ctx);
 				}
@@ -357,7 +357,7 @@ ssize_t exec_handler(context_t *ctx, event_t event, driver_data_t *event_data )
 			break;
 
 		case EVENT_TERMINATE:
-			d_printf("%s - Got a termination event.  Cleaning up\n", ctx->name);
+			x_printf(ctx,"%s - Got a termination event.  Cleaning up\n", ctx->name);
 			cf->pending_action_timestamp = rel_time(0L);
 
 			if( cf->state == EXEC_STATE_RUNNING ) {
@@ -407,7 +407,7 @@ ssize_t exec_handler(context_t *ctx, event_t event, driver_data_t *event_data )
 
 				cf->pending_action_timestamp = rel_time(0L);
 
-                d_printf("%s - Got a restart request (signal = %d)..\n", ctx->name, sig);
+                x_printf(ctx,"%s - Got a restart request (signal = %d)..\n", ctx->name, sig);
             }
 			break;
 
@@ -445,21 +445,21 @@ ssize_t exec_handler(context_t *ctx, event_t event, driver_data_t *event_data )
 
 		case EVENT_READ:
 			{
-				d_printf("%s - Read event triggerred for fd = %d\n", ctx->name, fd->fd);
+				x_printf(ctx,"%s - Read event triggerred for fd = %d\n", ctx->name, fd->fd);
 				size_t bytes;
 				event_bytes( fd->fd, &bytes );
 				if( bytes ) {
 
-					d_printf("%s - Read event for fd = %d (%d bytes)\n", ctx->name, fd->fd, bytes);
+					x_printf(ctx,"%s - Read event for fd = %d (%d bytes)\n", ctx->name, fd->fd, bytes);
 					char read_buffer[MAX_READ_BUFFER];
 
 					if( bytes >= MAX_READ_BUFFER ) {
 						bytes = MAX_READ_BUFFER-1;
-						d_printf("%s - WARNING: Truncating read to %d bytes\n",ctx->name, bytes);
+						x_printf(ctx,"%s - WARNING: Truncating read to %d bytes\n",ctx->name, bytes);
 					}
 
 					ssize_t result = event_read( fd->fd, read_buffer, bytes);
-					d_printf("%s - Read event returned %d bytes of data\n",ctx->name, bytes);
+					x_printf(ctx,"%s - Read event returned %d bytes of data\n",ctx->name, bytes);
 
 					if( result >= 0 ) {
 						read_buffer[result] = 0;
@@ -472,13 +472,13 @@ ssize_t exec_handler(context_t *ctx, event_t event, driver_data_t *event_data )
 							x_printf(ctx,"WARNING: Failed to send all data to %s\n",ctx->owner->name);
 
 					} else
-						d_printf(" * WARNING: read return unexpected result %d\n",result);
+						x_printf(ctx," * WARNING: read return unexpected result %d\n",result);
 				} else {
-					d_printf("%s - EOF on input. Cleaning up\n", ctx->name);
+					x_printf(ctx,"%s - EOF on input. Cleaning up\n", ctx->name);
 					if( fd->fd == cf->fd_in ) {
-						d_printf("Child program has terminated\n");
+						x_printf(ctx,"Child program has terminated\n");
 
-						//d_printf("EOF - closing input file descriptor %d\n", cf->fd_in);
+						//x_printf(ctx,"EOF - closing input file descriptor %d\n", cf->fd_in);
 						event_delete( ctx, cf->fd_in, EH_NONE );
 						close( cf->fd_in );
 						cf->fd_in = -1;
@@ -500,19 +500,19 @@ ssize_t exec_handler(context_t *ctx, event_t event, driver_data_t *event_data )
 			break;
 
 		case EVENT_SEND_SIGNAL:
-			d_printf("%s - Asked to send a signal to process\n",ctx->name);
+			x_printf(ctx,"%s - Asked to send a signal to process\n",ctx->name);
 			if( cf->pid > 0 ) {
 				kill( cf->pid, event_data->event_signal );
 #ifndef NDEBUG
 			} else {
-				d_printf("%s - No process to signal\n", ctx->name);
+				x_printf(ctx,"%s - No process to signal\n", ctx->name);
 #endif
 			}
 			break;
 
 		case EVENT_SIGNAL:
 			if( event_data->event_signal == SIGCHLD ) {
-				d_printf("%s - Reaping deceased child (expecting pid %d)\n",ctx->name, cf->pid);
+				x_printf(ctx,"%s - Reaping deceased child (expecting pid %d)\n",ctx->name, cf->pid);
 				int status;
 				int rc = event_waitchld(&status, cf->pid);
 
@@ -520,7 +520,7 @@ ssize_t exec_handler(context_t *ctx, event_t event, driver_data_t *event_data )
 					x_printf(ctx, "PID matches.  cleaning up\n");
 					// disable further events being recognized for this process
 					cf->pid = -1;
-					//d_printf("SIGNAL - closing output file descriptor\n");
+					//x_printf(ctx,"SIGNAL - closing output file descriptor\n");
 					close(cf->fd_out);
 					event_delete( ctx, cf->fd_out, EH_NONE );
 					cf->fd_out = -1;
@@ -556,10 +556,10 @@ ssize_t exec_handler(context_t *ctx, event_t event, driver_data_t *event_data )
 				if( cf->flags & (EXEC_TERMINATING|EXEC_RESTARTING) ) {
 					if( cf->pid > 0 ) {
 						if(( now - cf->pending_action_timestamp ) > (EXEC_PROCESS_TERMINATION_TIMEOUT*2) ) {
-							d_printf("%s - REALLY Pushing it along with a SIGKILL (pid = %d)\n", ctx->name, cf->pid);
+							x_printf(ctx,"%s - REALLY Pushing it along with a SIGKILL (pid = %d)\n", ctx->name, cf->pid);
 							kill( cf->pid, SIGKILL );
 						} else if(( now - cf->pending_action_timestamp ) > EXEC_PROCESS_TERMINATION_TIMEOUT ) {
-							d_printf("%s - Pushing it along with a SIGTERM (pid = %d)\n", ctx->name, cf->pid);
+							x_printf(ctx,"%s - Pushing it along with a SIGTERM (pid = %d)\n", ctx->name, cf->pid);
 							kill( cf->pid, SIGTERM );
 						}
 					}
@@ -578,7 +578,7 @@ ssize_t exec_handler(context_t *ctx, event_t event, driver_data_t *event_data )
 			break;
 
 		default:
-			d_printf("\n *\n *\n * %s - Emitted some kind of event \"%s\" (%d)\n *\n *\n", ctx->name, event_map[event], event);
+			x_printf(ctx,"\n *\n *\n * %s - Emitted some kind of event \"%s\" (%d)\n *\n *\n", ctx->name, event_map[event], event);
 	}
 	return 0;
 }

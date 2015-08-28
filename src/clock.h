@@ -52,24 +52,16 @@ typedef enum
 	ALARM_UNISED,
 	ALARM_TIMER = 1,
 	ALARM_INTERVAL = 2,
+	ALARM_FIRED = 4,
 } event_alarm_flags_t;
-
-typedef struct event_alarm_s
-{
-	time_t          duration;
-	event_alarm_flags_t flags;
-	time_t          event_time;
-	int             next_event;
-	context_t		   *ctx;
-} event_alarm_t;
-
-#define MAX_ALARM 32
-
-extern event_alarm_t alarm_table[MAX_ALARM];
 
 extern time_t   rel_time(time_t * ptr);
 extern int      event_timer_create(event_timer_t * event);
 extern void     event_timer_delete(event_timer_t * event);
 extern int      event_timer_handle(event_timer_t * event);
+
+extern int alarm_delete_list( int i );
+extern int alarm_insert_list( int i );
+extern long alarm_getnext(void);
 
 #endif // __CLOCK_H__

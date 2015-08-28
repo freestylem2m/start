@@ -11,12 +11,18 @@ compiler = ARGUMENTS.get('compiler','gcc')
 
 include_path = [
         top + '/src',
-        top + '/src/drivers'
+        top + '/src/drivers',
         ]
 
 libs = [
-        '-lrt'
+        '-lrt',
         ]
+
+hvclib = [
+        '/home/freestyle/git/FMEBuild/src/platform/hvc-50x/libHVC/libHVC.o',
+        ]
+
+additional_objects = []
 
 build_dir = os.path.join('build',platform)
 exe_dir = os.path.join('bin',platform)
@@ -33,6 +39,8 @@ if platform == 'hvc-50x':
     print "Building for HVC"
     compiler = '/opt/buildroot-gcc342/bin/mipsel-linux-gcc'
     build_config.Replace(CC=compiler)
+    include_path.append( '/home/freestyle/git/FMEBuild/src/platform/hvc-50x/libHVC' )
+    additional_objects.append( hvclib )
 
 if debug == 0:
     build_config.Append(CCFLAGS = '-fshort-enums -fbounds-check' )
@@ -73,8 +81,14 @@ for root, dirnames, filenames in os.walk( 'src' ):
 
 netmanage_binary = os.path.join(top,exe_dir,'netmanage')
 
+
 build_config.Clean( 'src/driver.c' , [ 'src/driver_setup.h', 'src/driver_config.h' ] );
 build_config.Append( CPPPATH = include_path )
-build_config.Program( netmanage_binary, main_source, LIBS = libs )
+target = build_config.Program( netmanage_binary, source = [ main_source, additional_objects ], LIBS = libs )
+
+dest_dir = '/home/freestyle/fme'
+build_publish = Command( os.path.join(dest_dir, 'netmanage'), netmanage_binary, Copy("$TARGET","$SOURCE"))
+Depends(build_publish, target)
+Default(build_publish, target)
 
 #Return("build_config");

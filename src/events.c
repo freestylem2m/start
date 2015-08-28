@@ -57,6 +57,7 @@ char *event_map[] = {
 	"EVENT_EXCEPTION",
 	"EVENT_SIGNAL",
 	"EVENT_SEND_SIGNAL",
+	"EVENT_ALARM",
 	"EVENT_TICK",
 	"EVENT_DATA_INCOMING",
 	"EVENT_DATA_OUTGOING",
@@ -77,7 +78,10 @@ char *driver_data_type_map[] = {
 	"TYPE_FD",
 	"TYPE_DATA",
 	"TYPE_SIGNAL",
+	"TYPE_ALARM",
 	"TYPE_TICK",
+	"TYPE_CHILD",
+	"TYPE_CUSTOM",
 	0L
 };
 #endif
@@ -167,6 +171,23 @@ event_request_t *event_find_free_slot( void )
     return 0L;
 }
 
+int event_alarm_add( context_t *ctx, time_t interval, event_alarm_flags_t flags )
+{
+	int alarm_fd = alarm_add( ctx, interval, flags );
+
+	printf("Event_alarm_add() called.  Alarm == %d\n",alarm_fd);
+	if( event_add( ctx, alarm_fd, EH_TIMER ) )
+		return alarm_fd;
+
+	return -1;
+}
+
+void event_alarm_delete( context_t *ctx, int fd )
+{
+	event_delete( ctx, fd, EH_TIMER );
+	alarm_delete( ctx, fd );
+}
+
 event_request_t *event_set( const context_t *ctx, const int fd, const unsigned int flags )
 {
 	event_request_t *entry = event_find( ctx, fd, flags );
@@ -239,10 +260,17 @@ int create_event_set( fd_set *readfds, fd_set *writefds, fd_set *exceptfds, int 
 	{
 		if( event_table[i].flags ) {
 			if( event_table[i].flags & EH_SPECIAL ) {
+
+				if( event_table[i].flags & EH_TIMER_FD )
+					FD_SET( (unsigned int) event_table[i].fd, readfds), count ++;
+
+				if( event_table[i].flags & EH_TIMER )
+					count ++;
+
 				if( event_table[i].flags & EH_SIGNAL )
 					count ++;
 			} else {
-                //d_printf(" ** Adding registered events for %s (fd = %d)\n",event_table[i].ctx->name, event_table[i].fd);
+                //x_printf(ctx," ** Adding registered events for %s (fd = %d)\n",event_table[i].ctx->name, event_table[i].fd);
 				if( event_table[i].flags & EH_READ )
 					FD_SET( (unsigned int) event_table[i].fd, readfds), count ++;
 				if( event_table[i].flags & EH_WRITE )
@@ -330,8 +358,22 @@ int handle_pending_signals( void )
 	return 0;
 }
 
+int handle_event_alarm(event_request_t *event)
+{
+	int alarm_fd = event->fd;
+
+	if( alarm_table[alarm_fd].flags & ALARM_INTERVAL )
+		alarm_update_interval( event->ctx, alarm_fd );
+	else
+		event_alarm_delete( event->ctx, alarm_fd );
+
+	return 0;
+}
+
 int handle_event_set( fd_set *readfds, fd_set *writefds, fd_set *exceptfds )
 {
+	time_t now = rel_time(0L);
+
 	int i;
 	for( i = 0; i < MAX_EVENT_REQUESTS; i++ ) {
 		if( event_table[i].flags && ((event_table[i].flags & EH_SPECIAL) == 0 )) {
@@ -344,6 +386,16 @@ int handle_event_set( fd_set *readfds, fd_set *writefds, fd_set *exceptfds )
 				event_table[i].ctx->driver->emit( event_table[i].ctx,  EVENT_WRITE, &data );
 			if( (event_table[i].flags & EH_READ) &&  FD_ISSET( (unsigned int) event_table[i].fd, readfds ) )
 				event_table[i].ctx->driver->emit( event_table[i].ctx, EVENT_READ, &data );
+		} else {
+			if( event_table[i].flags & EH_TIMER )
+				if( alarm_table[ event_table[i].fd ].event_time <= now ) {
+					alarm_table[ event_table[i].fd ].flags |= ALARM_FIRED;
+					driver_data_t data = { TYPE_ALARM, 0, {} };
+					data.event_alarm = event_table[i].fd;
+					event_table[i].ctx->driver->emit( event_table[i].ctx, EVENT_ALARM, &data );
+					if( alarm_table[ event_table[i].fd ].flags & ALARM_FIRED )
+						handle_event_alarm( & event_table[i] );
+				}
 		}
 	}
 	return 0;
@@ -364,13 +416,23 @@ int handle_timer_events()
 	return 0;
 }
 
-int event_loop( int timeout )
+int event_loop( long timeout )
 {
 	fd_set fds_read, fds_write, fds_exception;
 	int max_fd = 0;
 
 	if( ! create_event_set( &fds_read, &fds_write, &fds_exception, &max_fd ) )
 		return -1;
+
+	time_t now = rel_time(0L);
+	long alarm_time = alarm_getnext();
+
+	if( alarm_time >= 0 ) {
+		if( alarm_time > now )
+			timeout = alarm_time - now;
+		else
+			timeout = 0;
+	}
 
 #ifdef USE_PSELECT
 	// If I know there are signals which need processing, reset the select timeout to 0
@@ -429,7 +491,6 @@ int event_loop( int timeout )
 
 int event_bytes( int fd, size_t *pbytes )
 {
-	//d_printf("Calling FIONREAD on fd %d\n",fd);
 	*pbytes = 0;
 	if( ioctl( fd, FIONREAD, pbytes ) < 0 ) {
 		d_printf("Error with FIONREAD.  err = %s\n",strerror(errno));
@@ -441,7 +502,6 @@ int event_bytes( int fd, size_t *pbytes )
 
 ssize_t event_read( int fd, char *buffer, size_t len )
 {
-	//d_printf("Calling read(%d, %p, %ld)\n",fd,buffer,len);
 	ssize_t rc;
 	while( (rc = read( fd, buffer, len )) < 0 ) {
 		d_printf("Read returned error.  %d:%s(%d)\n",rc,strerror(errno),errno);

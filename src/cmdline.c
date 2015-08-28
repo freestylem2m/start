@@ -41,7 +41,11 @@
 //
 
 const char *programname = 0L;
+#ifndef NDEBUG
+char *config_file = (char *) "/mnt/netmanage.conf";
+#else
 char *config_file = (char *) "/flash/netmanage.conf";
+#endif
 char *msg_filter = 0L;
 int  debug = 0;
 int  debug_quiet = 0;

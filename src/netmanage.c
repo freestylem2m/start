@@ -100,7 +100,8 @@ context_t *start_service( const char *name, const config_t *parent_config, conte
 
 void run()
 {
-	while (!event_loop(1000)) {
+	while (!event_loop(1000))
+	{
 	}
 
 	d_printf("I'm outa here!\n");
@@ -109,9 +110,7 @@ void run()
 int main(int ac, char *av[])
 {
 	parse_cmdline(ac, av);
-	/*
-	 * dump_cmdline();
-	 */
+	// dump_cmdline();
 
 	if( config_read_file(config_file) < 0) {
 		fprintf(stderr,"Unable to read config file %s\n",config_file);

@@ -33,6 +33,7 @@
 #include <signal.h>
 
 #include "config.h"
+#include "clock.h"
 
 #if _POSIX_C_SOURCE >= 200112L
 #define USE_PSELECT
@@ -61,6 +62,7 @@ typedef enum
 	EVENT_EXCEPTION,
 	EVENT_SIGNAL,
 	EVENT_SEND_SIGNAL,
+	EVENT_ALARM,
 	EVENT_TICK,
 	EVENT_DATA_INCOMING,
 	EVENT_DATA_OUTGOING,
@@ -108,6 +110,9 @@ typedef struct context_s
 
 	void           *data;
 	context_state_t state;
+#ifndef NDEBUG
+	int   debug;
+#endif
 } context_t;
 
 typedef enum
@@ -121,7 +126,9 @@ typedef enum
 	EH_WRITE2 = 6,
 	EH_READWRITE = 7,
 	EH_SIGNAL = 8,
-	EH_SPECIAL = (EH_SIGNAL),
+	EH_TIMER = 16,
+	EH_TIMER_FD = 32,
+	EH_SPECIAL = (EH_SIGNAL|EH_TIMER|EH_TIMER_FD),
 	EH_WANT_TICK = 128,
 } event_handler_flags_t;
 
@@ -143,6 +150,7 @@ typedef enum
 	TYPE_FD,					// event_fd
 	TYPE_DATA,					// event_data
 	TYPE_SIGNAL,				// event_signal
+	TYPE_ALARM,				// event_signal
 	TYPE_TICK,					// event_tick
 	TYPE_CHILD,                 // event_child
 	// Driver specific data types, which breaks the driver model somewhat, but
@@ -200,6 +208,7 @@ typedef struct driver_data_s
 		event_request_t event_request;
 		event_data_t    event_data;
 		int             event_signal;
+		int             event_alarm;
 		unicorn_data_t  event_unicorn;
 		event_child_t   event_child;
 		void  *         event_custom;
@@ -225,9 +234,22 @@ typedef struct driver_s
 } driver_t;
 
 
+typedef struct event_alarm_s
+{
+	time_t          duration;
+	event_alarm_flags_t flags;
+	time_t          event_time;
+	int             event_next;
+	context_t		  *ctx;
+} event_alarm_t;
+
+#define MAX_ALARM 32
+
+extern event_alarm_t alarm_table[MAX_ALARM];
+
 extern void     handle_signal_event(int sig_event);
 
-int             event_loop(int timeout);
+int             event_loop(long timeout);
 
 extern context_t context_table[MAX_CONTEXTS];
 extern event_request_t event_table[MAX_EVENT_REQUESTS];
@@ -237,6 +259,14 @@ extern event_request_t *event_find(const context_t * ctx, int fd, const unsigned
 extern event_request_t *event_set(const context_t * ctx, int fd, unsigned int flags);
 extern event_request_t *event_add(context_t * ctx, const int fd, unsigned int flags);
 extern void     event_delete(context_t * ctx, int fd, event_handler_flags_t flags);
+
+extern int alarm_add(context_t *ctx, time_t interval, event_alarm_flags_t flags);
+extern int alarm_delete(context_t *ctx, int key);
+extern int alarm_update(context_t *ctx, int key, time_t interval, event_alarm_flags_t flags);
+
+extern int alarm_update_interval(context_t *ctx, int key );
+extern int event_alarm_add( context_t *ctx, time_t interval, event_alarm_flags_t flags );
+extern void event_alarm_delete( context_t *ctx, int fd );
 
 extern int      event_bytes(int fd, size_t * pbytes);
 extern ssize_t  event_read(int fd, char *buffer, size_t len);

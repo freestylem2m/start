@@ -136,7 +136,7 @@ ssize_t syslog_handler(context_t *ctx, event_t event, driver_data_t *event_data)
 	switch (event) {
 		case EVENT_INIT:
 			{
-				d_printf("SYSLOG INIT event triggered\n");
+				x_printf(ctx,"SYSLOG INIT event triggered\n");
 
 				const char *options  = get_env( ctx, "options" );
 				const char *facility = get_env( ctx, "facility" );

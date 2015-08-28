@@ -1,12 +1,4 @@
 .sconsign.dblite
-Makefile
-autom4te.cache/
-config.h
-config.log
-config.status
-configure
-netmanage
-.depend
 src/driver_config.h
 src/driver_setup.h
 build/

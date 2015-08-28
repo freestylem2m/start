@@ -57,6 +57,10 @@ extern const char **config_itemlist( const char *section, const char *item );
 
 extern const char *config_get_item( const config_t *section, const char *item );
 extern const char **config_get_itemlist( const config_t *section, const char *item );
+
+extern int config_get_intval(const config_t *section, const char *item);
+extern unsigned int config_get_binval(const config_t *section, const char *item);
+extern unsigned int config_get_timeval(const config_t *section, const char *item);
 extern int config_istrue( const config_t *section, const char *item );
 
 #endif
