@@ -44,9 +44,11 @@ const driver_t driver_table[] = {
 #include "driver_setup.h"
 };
 
-const int driver_max = sizeof( driver_table ) / sizeof( *driver_table );
+static const int driver_max = sizeof( driver_table ) / sizeof( *driver_table );
 
-// Dummy data
+// Dummy data.  Used whenever emit() is called with a null event pointer.
+// If you call driver->emit() directly, avoid passing a null event pointer, pass
+// this instead.
 driver_data_t driver_data_dummy = { TYPE_NONE, 0L, {} };
 
 #define ENV_MAX 64
@@ -57,6 +59,10 @@ const char *get_env( context_t *ctx, const char *name )
 		value = config_get_item( ctx->owner->config, name );
 	if( !value && ctx->driver_config )
 		value = config_get_item( ctx->driver_config, name );
+
+	// Construct an environment variable name from the service name and the item name
+	// service 'media' looking for item 'folder' will check for 'MEDIA_FOLDER' in the 
+	// environment
 
 	if( !value ) {
 		char env_name[ENV_MAX];
@@ -80,42 +86,32 @@ const char *get_env( context_t *ctx, const char *name )
 
 context_t *start_driver( const char *driver_name, const char *context_name, const config_t *parent_config, context_t *owner )
 {
-	const driver_t *driver;
-	const config_t *driver_config;
+	const driver_t     *driver;
+	const config_t     *driver_config;
+	context_t          *ctx;
 
-	context_t *ctx;
+	if (!context_name)
+		context_name = driver_name;
 
-    if( !context_name )
-        context_name = driver_name;
-
-	if( ( ctx = find_context( context_name ) ))
+	if ((ctx = find_context(context_name)))
 		return ctx;
 
-	driver = find_driver(driver_name);
 	driver_config = config_get_section(driver_name);
-
-	if( driver ) {
-		ctx = context_create(context_name, parent_config, driver, driver_config);
-		//d_printf("context_create(%s) returned %p\n", driver_name, ctx);
-		//d_printf("find_driver(%s) returned %p\n", driver_name,  driver);
-		if( ctx ) {
+	if(( driver = find_driver(driver_name) )) {
+		if (( ctx = context_create(context_name, parent_config, driver, driver_config) )) {
 			ctx->owner = owner;
 			if (driver->init(ctx)) {
-				//d_printf("emit(\"init\") to driver %s\n", driver_name);
-                context_owner_notify( ctx, CHILD_STARTING, 0 );
-				ctx->driver->emit( ctx, EVENT_INIT, DRIVER_DATA_NONE );
-				if( ctx->state == CTX_UNUSED ) // context_terminate() called.
-					context_owner_notify( ctx, CHILD_FAILED, 0 );
-				else
-					context_owner_notify( ctx, CHILD_STARTED, 0 );
+				context_owner_notify(ctx, CHILD_STARTING, 0);
+				ctx->driver->emit(ctx, EVENT_INIT, DRIVER_DATA_NONE);
+				context_owner_notify(ctx, ctx->state == CTX_UNUSED ? CHILD_FAILED : CHILD_STARTED, 0);
 				return ctx;
 			} else
 				context_delete(ctx, NULL);
 		}
 	} else
-		d_printf("Unable to locate driver %s for %s\n",driver_name,parent_config->section);
+		// This should be a call to logger()
+		d_printf("Unable to locate driver %s for %s\n", driver_name, parent_config->section);
 
-	d_printf("start driver \"%s\" returning failure\n",driver_name );
 	return 0L;
 }
 
@@ -135,10 +131,8 @@ context_t *context_find_entry( const char *name )
 	int i;
 	
 	for( i = 0; i < MAX_CONTEXTS; i++ )
-		if( (context_table[i].state != CTX_UNUSED) && (!strcasecmp(context_table[i].name, name))) {
-			d_printf("context_find_entry( %s ) returning %p (index %d)\n",name, &context_table[i], i )
+		if( (context_table[i].state != CTX_UNUSED) && (!strcasecmp(context_table[i].name, name)))
 			return &context_table[i];
-		}
 
 	return 0L;
 }
@@ -188,9 +182,8 @@ void context_owner_notify( context_t *ctx, child_status_t state, int status )
 	}
 }
 
-int context_terminate( context_t *ctx ) {
-	x_printf(ctx,"context_terminate(%s) called\n",ctx->name);
-
+int context_terminate( context_t *ctx )
+{
 	int i;
 	for( i = 0; i < MAX_EVENT_REQUESTS; i++ ) {
 		if (event_table[i].ctx == ctx)
@@ -203,7 +196,6 @@ int context_terminate( context_t *ctx ) {
 		ctx->driver->shutdown( ctx );
 
     context_owner_notify( ctx, CHILD_STOPPED, 0 );
-	//bzero( ctx, sizeof(context_t) );
 	ctx->state = CTX_UNUSED;
 
 	return 0;

@@ -37,7 +37,7 @@
 #include "netmanage.h"
 #include "config.h"
 
-config_t *config;
+static config_t *config;
 
 #define LINE_MAX 1024
 
@@ -75,32 +75,6 @@ const char *config_get_item( const config_t *section, const char *item )
 	return 0L;
 }
 
-// Used for applying scale factors to integer values
-typedef struct _scalefactor {
-	char c;
-	int scale;
-} scalefactor;
-
-// Scale factors.  kmg are multipes of 1000, KMG are multipls of 1024. 's' is seconds (as in 1000 ms)
-scalefactor binary_scale[] = {
-	{ 'k', 1000 },
-	{ 'm', 1000000 },
-	{ 's', 1000 },
-	{ 'g', 1000000000 },
-	{ 'K', 1024 },
-	{ 'M', 1024*1024 },
-	{ 'G', 1024*1024*1024 },
-	{ 0x00, 0 }
-};
-
-scalefactor time_scale[] = {
-	{ 's', 1000 },
-	{ 'm', 60*1000 },
-	{ 'h', 60*60*1000 },
-	{ 'd', 24*60*60*1000 },
-	{ 0x00, 0 }
-};
-
 unsigned int config_get_binval(const config_t *section, const char *item)
 {
 	char     *i = (char *) config_get_item(section, item);
@@ -108,7 +82,7 @@ unsigned int config_get_binval(const config_t *section, const char *item)
 	long int val = strtol(i, &i, 10);
 
 	while( i && *i ) {
-		scalefactor *s = binary_scale;
+		const scalefactor *s = binary_scale;
 		while( s->c ) {
 			if( s->c == *i )
 				val *= s->scale;
@@ -137,7 +111,7 @@ unsigned int config_get_timeval(const config_t *section, const char *item)
 	long int val = strtol(i, &i, 10);
 
 	while( i && *i ) {
-		scalefactor *s = time_scale;
+		const scalefactor *s = time_scale;
 		while( s->c ) {
 			if( s->c == *i )
 				val *= s->scale;
@@ -153,21 +127,30 @@ int config_istrue(const config_t * section, const char *item)
 {
 	const char     *i = config_get_item(section, item);
 
-	if (i && *i) {
-		if (!strcasecmp(i, "on"))
-			return 1;
-		if (!strcasecmp(i, "ok"))
-			return 1;
-		if ('o' == tolower(*i))
-			if ('f' != tolower(i[1]))
-				return 1;
-		if ('t' == tolower(*i))
-			return 1;
-		if ('y' == tolower(*i))
-			return 1;
-		if (atoi(i) > 0)
-			return 1;
+	if( !i )
+		return 0;
+
+	switch( tolower( *i ) ) {
+		case 'o':
+			switch( tolower( *(++i) ) ) {
+				case 'n':
+				case 'k':
+					// "ok" or "on"
+					return 1;
+				default:
+					// "off" or any other "o" word
+					return 0;
+			}
+			break;
+		case 't':
+		case 'y':
+			// "yes" or "true" or any "y" or "t" word
+			return 1;			
+		default:
+			// positive number is true, zero or negative is false.
+			return (atoi(i) > 0)?1:0;
 	}
+
 	return 0;
 }
 

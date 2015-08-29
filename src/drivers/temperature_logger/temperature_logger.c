@@ -48,8 +48,6 @@
 
 int temperature_logger_init(context_t * ctx)
 {
-	x_printf(ctx,"Hello from TEMPERATURE LOGGER(%s) INIT!\n", ctx->name);
-
 	temperature_logger_config_t *cf ;
 
 	if (0 == (cf = (temperature_logger_config_t *) calloc( sizeof( temperature_logger_config_t ) , 1 )))
@@ -62,8 +60,6 @@ int temperature_logger_init(context_t * ctx)
 
 int temperature_logger_shutdown(context_t * ctx)
 {
-	x_printf(ctx,"Goodbye from TEMPERATURE LOGGER INIT!\n");
-
 	if( ctx->data )
 		free( ctx->data );
 
@@ -72,63 +68,55 @@ int temperature_logger_shutdown(context_t * ctx)
 	return 1;
 }
 
-ssize_t temperature_logger_handler(context_t *ctx, event_t event, driver_data_t *event_data)
+ssize_t temperature_logger_handler(context_t *ctx, event_t event, driver_data_t *event_data __attribute__((unused)) )
 {
-	UNUSED(event_data);
-
 	temperature_logger_config_t *cf = (temperature_logger_config_t *) ctx->data;
 
 	switch (event) {
-	case EVENT_INIT:
-		{
-			unsigned int interval = config_get_timeval( ctx->config, "interval" );
-			cf->logfile = config_get_item( ctx->config, "logfile" );
-			cf->format_str = config_get_item( ctx->config, "format" );
+		case EVENT_INIT:
+			{
+				unsigned int interval = config_get_timeval( ctx->config, "interval" );
+				cf->logfile = config_get_item( ctx->config, "logfile" );
+				cf->format_str = config_get_item( ctx->config, "format" );
 
-			if( !cf->logfile )
-				cf->logfile = "/flash/temp.log";
-			if( !cf->format_str )
-				cf->format_str = "%t";
+				if( !cf->logfile )
+					cf->logfile = "/flash/temp.log";
+				if( !cf->format_str )
+					cf->format_str = "%t";
 
-			cf->format_content[0].key = 'T';
-			cf->format_content[0].type = FMT_DATESTRING;
-			cf->format_content[1].key = 't';
-			cf->format_content[1].type = FMT_UINT;
+				cf->format_content[0].key = 'T';
+				cf->format_content[0].type = FMT_DATESTRING;
+				cf->format_content[1].key = 't';
+				cf->format_content[1].type = FMT_UINT;
 
-			cf->timer_fd = event_alarm_add( ctx, (time_t) interval, ALARM_INTERVAL );
-		}
-		break;
-
-	case EVENT_ALARM:
-		{
-			unsigned int bytes;
-			int temperature = hvc_getTemperature();
-			int fd = open(cf->logfile, O_CREAT|O_WRONLY|O_APPEND, 0777 );
-			if( fd >= 0 ) {
-				cf->format_content[0].d_time = time(0L);
-				cf->format_content[1].u_val = (unsigned int )temperature;
-				bytes = format_string(cf->format_buffer, TEMPERATURE_LOGGER_BUFFER_MAX-1, cf->format_str, cf->format_content);
-				cf->format_buffer[bytes++] = '\n';
-				if( (write( fd, cf->format_buffer, bytes )) < 0 )
-					perror("write");
-				close( fd );
+				cf->timer_fd = event_alarm_add( ctx, (time_t) interval, ALARM_INTERVAL );
 			}
-		}
-		break;
+			break;
 
-	case EVENT_TERMINATE:
-		event_alarm_delete( ctx, cf->timer_fd );
-		break;
+		case EVENT_ALARM:
+			{
+				unsigned int bytes;
+				int temperature = hvc_getTemperature();
+				int fd = open(cf->logfile, O_CREAT|O_WRONLY|O_APPEND, 0777 );
+				if( fd >= 0 ) {
+					cf->format_content[0].d_time = time(0L);
+					cf->format_content[1].u_val = (unsigned int )temperature;
+					bytes = format_string(cf->format_buffer, TEMPERATURE_LOGGER_BUFFER_MAX-1, cf->format_str, cf->format_content);
+					cf->format_buffer[bytes++] = '\n';
+					if( (write( fd, cf->format_buffer, bytes )) < 0 )
+						perror( AT "write");
+					close( fd );
+				}
+			}
+			break;
 
-	case EVENT_RESTART:
-	case EVENT_READ:
-	case EVENT_EXCEPTION:
-	case EVENT_SIGNAL:
-	case EVENT_TICK:
-		break;
+		case EVENT_TERMINATE:
+			event_alarm_delete( ctx, cf->timer_fd );
+			context_terminate( ctx );
+			break;
 
-	default:
-		x_printf(ctx,"\n *\n *\n * Emitted some kind of event \"%s\" (%d)\n *\n *\n", event_map[event], event);
+		default:
+			break;
 	}
 	return 0;
 }

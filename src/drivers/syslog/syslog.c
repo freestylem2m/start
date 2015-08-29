@@ -106,10 +106,8 @@ static int syslog_options_lookup( const char *str )
 
 int syslog_init(context_t *ctx)
 {
-	if (0 == (ctx->data = calloc(sizeof(syslog_config_t), 1))) {
-		fprintf(stderr,"<syslog> Creating local data failed\n");
+	if (0 == (ctx->data = calloc(sizeof(syslog_config_t), 1)))
 		return 0;
-	}
 
 	return 1;
 }
@@ -182,9 +180,7 @@ ssize_t syslog_handler(context_t *ctx, event_t event, driver_data_t *event_data)
 		case EVENT_DATA_INCOMING:
 		case EVENT_DATA_OUTGOING:
 		case EVENT_LOGGING:
-			if( data ) {
-				syslog( cf->prio, "%s", (char *) data->data );
-			}
+			syslog( cf->prio, "%s", (char *) data->data );
 			break;
 
 		default:

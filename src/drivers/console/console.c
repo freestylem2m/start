@@ -44,20 +44,14 @@
 
 int console_init(context_t *ctx)
 {
-	x_printf(ctx,"Hello from CONSOLE(%s) INIT!\n", ctx->name);
-
-	if (0 == (ctx->data = calloc(sizeof(console_config_t), 1))) {
-		x_printf(ctx,"Creating local data failed\n");
+	if (0 == (ctx->data = calloc(sizeof(console_config_t), 1)))
 		return 0;
-	}
 
 	return 1;
 }
 
 int console_shutdown(context_t *ctx)
 {
-	x_printf(ctx,"Goodbye from CONSOLE INIT!\n");
-
 	if( ctx->data )
 		free( ctx->data );
 
@@ -76,73 +70,51 @@ ssize_t console_handler(context_t *ctx, event_t event, driver_data_t *event_data
 	else if( event_data->type == TYPE_DATA )
 		data = & event_data->event_data;
 
-	x_printf(ctx,"fd = %p\n", fd);
-
 	switch (event) {
 		case EVENT_INIT:
-			x_printf(ctx,"CONSOLE INIT event triggered\n");
-
-			// Hard coded STDIO for now.
 			cf->fd_in = 0;
 			cf->fd_out = 1;
 
 			event_add(ctx, cf->fd_in, EH_DEFAULT);
-			event_add(ctx, SIGQUIT, EH_SIGNAL);
+
 			cf->state = CONSOLE_STATE_RUNNING;
 			break;
 
 		case EVENT_TERMINATE:
-			x_printf(ctx,"Got a termination event.  Cleaning up\n");
 			close( cf->fd_in );
 			cf->flags |= CONSOLE_TERMINATING ;
+
 			event_delete(ctx, cf->fd_in, EH_NONE);
 			context_terminate(ctx);
 			break;
 
 		case EVENT_DATA_INCOMING:
 		case EVENT_DATA_OUTGOING:
-			if( data ) {
-				x_printf(ctx,"Got a DATA event from my parent...\n");
-				x_printf(ctx,"bytes = %d\n",data->bytes );
-				x_printf(ctx,"buffer = %s\n", (char *)data->data );
-				x_printf(ctx,"buffer[%d] = %d\n",data->bytes,((char *)data->data)[data->bytes]);
-				if( write( cf->fd_out, data->data, data->bytes ) < 0 )
-					x_printf(ctx,"Failed to forward incoming data\n");
-			} else {
-				x_printf(ctx,"Got a DATA event from my parent... WITHOUT ANY DATA!!!\n");
-			}
-
+			if( write( cf->fd_out, data->data, data->bytes ) < 0 )
+				x_printf(ctx,"Failed to forward outgoing data\n");
 			break;
 
 		case EVENT_READ:
 			{
-				x_printf(ctx,"Read event triggerred for fd = %d\n", fd->fd);
 				size_t          bytes;
-				int             rc = event_bytes(fd->fd, &bytes);
-#ifdef NDEBUG
-				UNUSED(rc);
-#endif
-				x_printf(ctx,"event_bytes returned %d (%d bytes)\n", rc, bytes);
-				if (bytes) {
-					x_printf(ctx,"Read event for fd = %d (%d bytes)\n", fd->fd, bytes);
+				event_bytes(fd->fd, &bytes);
 
+				if (bytes) {
 					char            read_buffer[MAX_READ_BUFFER];
 
-					if( bytes >= MAX_READ_BUFFER ) {
+					if( bytes >= MAX_READ_BUFFER )
 						bytes = MAX_READ_BUFFER-1;
-						x_printf(ctx,"WARNING: Truncating read to %d bytes\n",bytes);
-					}
 
 					ssize_t         result = event_read(fd->fd, read_buffer, bytes);
 
-					if (result >= 0) {
+					if (result >= 0)
 						read_buffer[result] = 0;
-						x_printf(ctx,"Read event returned %d bytes of data\n", bytes);
-					} else {
-						x_printf(ctx,"read() returned %d (%s)\n", result, strerror(errno));
-					}
+
+					driver_data_t notification = { TYPE_DATA, ctx, {} };
+					notification.event_data.data = read_buffer;
+					notification.event_data.bytes = (size_t) result;
+					emit(ctx->owner, EVENT_DATA_INCOMING, &notification );
 				} else {
-					x_printf(ctx,"EOF on file descriptor (%d)\n", fd->fd);
 					event_delete(ctx, fd->fd, EH_NONE);
 					context_terminate(ctx);
 				}
@@ -150,26 +122,9 @@ ssize_t console_handler(context_t *ctx, event_t event, driver_data_t *event_data
 			}
 			break;
 
-		case EVENT_EXCEPTION:
-			x_printf(ctx,"Got an exception on FD %d\n", fd->fd);
-			break;
-
-		case EVENT_SIGNAL:
-			x_printf(ctx,"Woa! Got a sign from the gods... %d\n", fd->fd);
-			break;
-
-		case EVENT_TICK:
-			{
-				char            buffer[64];
-				time_t          now = rel_time(0L);
-				strftime(buffer, 64, "%T", localtime(&now));
-				x_printf(ctx,"%s:   ** Tick (%ld useconds) **\n", buffer, cf->last_tick ? rel_time(0L) - cf->last_tick : -1);
-				rel_time(&cf->last_tick);
-			}
-			break;
-
 		default:
-			x_printf(ctx,"\n *\n *\n * Emitted some kind of event \"%s\" (%d)\n *\n *\n", event_map[event], event);
+			break;
 	}
+
 	return 0;
 }

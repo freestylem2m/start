@@ -64,6 +64,7 @@ int alarm_insert_list( int i )
 	// Scan table looking for a place to insert.  This only scans existing
 	// entries, stopping at EOL or when timestamp > new alarm
 	event_alarm_t *j = & alarm_table[0];
+
 	while( j->event_next ) {
 		if( alarm_table[j->event_next].event_time > alarm_table[i].event_time )
 			break;
@@ -131,10 +132,8 @@ int alarm_delete(context_t *ctx, int key)
  */
 long alarm_getnext(void)
 {
-	int i=0;
-	if( alarm_table[i].event_next ) {
-		i = alarm_table[i].event_next;
-		return alarm_table[i].event_time;
+	if( alarm_table[ 0 ].event_next ) {
+		return alarm_table[ alarm_table[ 0 ].event_next ].event_time;
 	}
 	return -1;
 }
@@ -172,7 +171,7 @@ int alarm_update_interval(context_t *ctx, int key )
 	p->event_time = now + p->duration;
 	p->flags &= ~(unsigned int)ALARM_FIRED;
 
-	// short circuit list reording of possible
+	// short circuit list reording where possible
 	if( (! p->event_next) || (p->duration <= alarm_table[p->event_next].event_time) )
 		return key;
 
@@ -186,6 +185,10 @@ int alarm_update_interval(context_t *ctx, int key )
  * events which have to occur at specified intervals are unaffected by changes in
  * wall clock time, such as calling the 'date' command, or NTP, or refreshing the
  * system clock from the hardware RTC.
+ *
+ * ands it always returns milliseconds.   This allows the alarms and timers to be
+ * managed in milliseconds, and all timeouts based on rel_time() have millisecond
+ * resolution.
  */
 
 time_t rel_time(time_t *ptr)
@@ -221,27 +224,13 @@ time_t rel_time(time_t *ptr)
 
 int event_timer_create( event_timer_t *event )
 {
-	if( (! event) || ( event->tm.tv_nsec == 0 && event->tm.tv_sec == 0 ))
+	if( (! event) || ( event->tm.it_value.tv_nsec == 0 && event->tm.it_value.tv_sec == 0 ))
 		return -1;
 
-	int fd;
-	fd = timerfd_create( EVENT_CLOCK, TFD_CLOEXEC | TFD_NONBLOCK );
+	event->fd = timerfd_create( EVENT_CLOCK, TFD_CLOEXEC | TFD_NONBLOCK );
+	timerfd_settime(event->fd, 0, & event->tm, 0L );
 
-	if( event ) {
-
-		struct itimerspec _timer;
-		bzero( & _timer, sizeof( struct itimerspec ) );
-
-		event->fd = fd;
-		_timer.it_value = event->tm;
-
-		if( event->interval )
-			_timer.it_interval = event->tm;
-
-		timerfd_settime(fd, 0, &_timer, 0L );
-	}
-
-	return fd;
+	return event->fd;
 }
 
 void event_timer_delete( event_timer_t *event )
@@ -262,54 +251,3 @@ int event_timer_handler( event_timer_t *event )
 	return -1;
 }
 #endif
-
-#if 0
-void dump_alarm_table(void)
-{
-	int i;
-	for( i = 0; i < MAX_ALARM; i++ )
-	{
-		if( i==0 || alarm_table[i].flags )
-			printf("%d (%ld/%ld) ->%d\n",i, alarm_table[i].duration,alarm_table[i].event_time, alarm_table[i].event_next);
-	}
-}
-
-int main(int ac __attribute__((unused)), char *av[] __attribute__((unused))  )
-{
-	int nn;
-	int i;
-
-	printf("10 useconds = %d\n", alarm_add(0,10,1));
-	printf("20 useconds = %d\n", alarm_add(0,20,1));
-	dump_alarm_table();
-	printf("5 useconds = %d\n", alarm_add(0,5,1));
-	dump_alarm_table();
-	printf("15 useconds = %d\n", alarm_add(0,15,1));
-	dump_alarm_table();
-	printf("1 useconds = %d\n", alarm_add(0,1,1));
-	dump_alarm_table();
-	printf("7 useconds = %d\n", alarm_add(0,7,1));
-	dump_alarm_table();
-	printf("13 useconds = %d\n", alarm_add(0,13,1));
-	dump_alarm_table();
-	printf("alarm_delete(5) = %d\n", alarm_delete( 0, 5 ) );
-	dump_alarm_table();
-	printf("alarm_delete(2) = %d\n", alarm_delete( 0, 2 ) );
-	dump_alarm_table();
-	printf("alarm_delete(3) = %d\n", alarm_delete( 0, 3 ) );
-	dump_alarm_table();
-	printf("1 useconds = %d\n", (nn = alarm_add(0,1,1)));
-	dump_alarm_table();
-	printf("20 useconds = %d\n", alarm_add(0,20,1));
-	dump_alarm_table();
-	printf("5 useconds = %d\n", alarm_add(0,5,1));
-	dump_alarm_table();
-
-	for(i = 0; i < 20; i++ ) {
-		printf("alarm_update_interval( %d ) returned %d\n", nn, alarm_update_interval(0, nn ) );
-		dump_alarm_table();
-	}
-	return 0;
-}
-#endif
-

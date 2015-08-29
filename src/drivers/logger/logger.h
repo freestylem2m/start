@@ -18,14 +18,12 @@ typedef enum {
 
 typedef enum {
 	LOGGER_NONE,
-	LOGGER_RESPAWN = 1,
-	LOGGER_TERMINATING = 2,
+	LOGGER_TERMINATING = 1,
 } logger_flags_t;
 
 typedef struct logger_config_t {
 	logger_state_t state;
 	logger_flags_t flags;
-	time_t last_tick;
 	const char *log_driver;
 	context_t *logger;
 	int    log_fd;

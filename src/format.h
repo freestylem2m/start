@@ -38,13 +38,13 @@ typedef enum
 	FMT_LONG,
 	FMT_ULONG,
 	FMT_DATESTRING,
+	FMT_CALLBACK,
 } format_content_type_t;
 
 typedef struct format_content_s
 {
 	char            key;
 	format_content_type_t type;
-	//void                   *data;
 	union
 	{
 		int             i_val;
@@ -53,7 +53,10 @@ typedef struct format_content_s
 		unsigned long long ul_val;
 		char           *s_val;
 		time_t          d_time;
-		char            (*c_ptr) (char *, int, char *, struct format_content_s * f);
+		struct {
+			unsigned int  (*c_ptr) (char *, unsigned int, char *, void *);
+			void           *c_data;
+		};
 	};
 } format_content_t;
 

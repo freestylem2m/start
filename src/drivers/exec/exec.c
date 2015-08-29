@@ -54,17 +54,13 @@
 
 int exec_init(context_t *ctx)
 {
-	x_printf(ctx,"%s Hello from EXEC INIT!\n", ctx->name);
-
-	// register "emit" as the event handler of choice
-	
 	exec_config_t *cf;
 
 	if ( 0 == (cf = (exec_config_t *) calloc( sizeof( exec_config_t ) , 1 )))
 		return 0;
 
 	cf->state = EXEC_STATE_IDLE;
-	cf->restart_delay = 10;
+	cf->restart_delay = 10000;
 
 	if( config_istrue( ctx->config, "respawn" ) )
 		cf->flags |= EXEC_RESPAWN;
@@ -78,16 +74,9 @@ int exec_init(context_t *ctx)
 
 int exec_shutdown(context_t *ctx)
 {
-	x_printf(ctx,"Goodbye from EXEC!\n");
-
-	x_printf(ctx,"context data = %p\n",ctx->data);
-
 	exec_config_t *cf = (exec_config_t *) ctx->data;
 	int siglist[] = { SIGTERM, SIGTERM, SIGKILL, 0 };
 	int sigid = 0;
-
-	// Cycle through the list of signals, sending them until the
-	// child process has terminated, (or I run out of signals)
 
 	if( cf->pid > 0 )
 		while( !kill( cf->pid, 0 ) && siglist[sigid] ) {
@@ -95,9 +84,9 @@ int exec_shutdown(context_t *ctx)
 			usleep( 1000 );
 		}
 
-
 	if( ctx->data )
 		free( ctx->data );
+
 	ctx->data = 0;
 
 	return 1;
@@ -108,18 +97,16 @@ int exec_shutdown(context_t *ctx)
 
 char *process_command( char *cmd, char *exe, char **vec )
 {
-	//x_printf(ctx,"cmd = %s\n", cmd);
-
 	char           *cp = cmd;
 	int             px = 0;
 
 	while (cp && *cp && px < (CMD_ARGS_MAX - 1)) {
-		//x_printf(ctx,"cp = %s\n", cp);
 		size_t          seg = strcspn(cp, " \t\r\n\"'$");
 		if (seg)
 			vec[px++] = cp;
 
 		cp += seg;
+
 		switch (*cp) {
 		case ' ':
 		case '\t':
@@ -129,13 +116,10 @@ char *process_command( char *cmd, char *exe, char **vec )
 		case '"':
 			{
 				char            c = *cp;
-				d_printf("Scanning for a %c\n", c);
 				*cp++ = 0;
 				vec[px++] = cp;
-				d_printf("remainder = %s\n", cp);
 				if ((cp = strchr(cp, c)))
 					*cp++ = 0;
-				d_printf("Found the close %c at %p\n", c, cp);
 			}
 			break;
 		case '$':
@@ -152,7 +136,7 @@ char *process_command( char *cmd, char *exe, char **vec )
 
 	vec[px] = 0;
 
-	if (*vec[0] == '/' || strchr(vec[0], '/')) {
+	if (strchr(vec[0], '/')) {
 		strncpy(exe, vec[0], PATH_MAX);
 		return exe;
 	} else {
@@ -166,16 +150,14 @@ char *process_command( char *cmd, char *exe, char **vec )
 			int             rc;
 			struct stat     info;
 
-			while (path && *path && px < (PATH_MAX - 1)) {
+			while( path && *path ) {
 				spath = path;
 				path = strchr(path, ':');
 				if (path && *path)
 					*path++ = 0;
 				snprintf(exe, PATH_MAX, "%s/%s", spath, vec[0]);
-				//d_printf("%s\n", exe);
 				rc = stat(exe, &info);
 				if (!rc && S_ISREG(info.st_mode)) {
-					//d_printf("Found my command!\n");
 					free(new_path);
 					return exe;
 				}
@@ -195,39 +177,33 @@ int exec_launch( context_t *ctx, int use_tty )
 	const char *cmdline;
 	char *cmd;
 
-	cmdline = config_get_item( ctx->config, "cmd" );
 
-	if( !cmdline )
+	if( ! (( cmdline = config_get_item( ctx->config, "cmd" ) )))
 		return -1;
 
 	cmd = strdup( cmdline );
-
-	const char *path = process_command( cmd, exe, vec );
-
 	exec_config_t *cf = (exec_config_t *) ctx->data;
 
-	if( !path ) {
-		x_printf(ctx,"%s - Failing with unable-to-find-file error\n", ctx->name);
+	if( ! process_command( cmd, exe, vec )) {
 		free(cmd);
 		return -1;
 	}
 	
-	int fd_in[2] = { 0,0 };
-	int fd_out[2] = { 0,0 };
+	int fd_in[2] = { -1,-1 };
+	int fd_out[2] = { -1,-1 };
 
 	if( use_tty ) {
-		x_printf(ctx,"Trying to open a tty!!!!\n");
 		fd_in[FD_READ] = fd_out[FD_WRITE] = open("/dev/ptmx", O_RDWR | O_NOCTTY | O_NONBLOCK );
 
 		if( fd_in[FD_READ] < 0 ) {
 			logger(ctx->owner, ctx, "Failed to open a pty to launch %s\n", cmd);
-			FATAL("Failed to open pty - terminating\n");
 			free(cmd);
+
+			FATAL("Failed to open pty - terminating\n");
 			return 1;
 		}
 
 		char *slave_name = ptsname( fd_in[FD_READ] );
-		x_printf(ctx, "slave_name = %s\n",slave_name);
 
 		unlockpt( fd_in[FD_READ] );
 		grantpt( fd_in[FD_READ] );
@@ -235,20 +211,20 @@ int exec_launch( context_t *ctx, int use_tty )
 		fd_in[FD_WRITE] = fd_out[FD_READ] = open( slave_name, O_RDWR );
 
 		if( fd_in[FD_WRITE] < 0 ) {
-
 			logger(ctx->owner, ctx, "Failed to open pty-slave for %s\n",cmd);
-			FATAL("Failed to open pty-slave\n");
 			close( fd_in[FD_READ] );
 			free(cmd);
+
+			FATAL("Failed to open pty-slave\n");
 			return 1;
 		}
 	} else {
 		if( pipe( fd_in ) || pipe( fd_out ) ) {
 			int i;
 			for(i=0;i<2;i++) {
-				if( fd_in[i] )
+				if( fd_in[i] >= 0 )
 					close( fd_in[i] );
-				if( fd_out[i] )
+				if( fd_out[i] >= 0 )
 					close( fd_out[i] );
 			}
 			free(cmd);
@@ -277,23 +253,12 @@ int exec_launch( context_t *ctx, int use_tty )
 		free( cmd );
 	} else {
 		// Child.  convert to stdin/stdout
-		//int fd;
-
-		x_printf(ctx,"replacing stdin and out/err with %d / %d\n",fd_out[FD_READ], fd_in[FD_WRITE]);
-		if( dup2( fd_out[FD_READ], 0 ) < 0 ) {
+		if( dup2( fd_out[FD_READ], 0 ) < 0 )
 			x_printf(ctx, "Failed to set up STDIN with %d\n", fd_out[FD_READ]);
-		}
-		if( dup2( fd_in[FD_WRITE], 1 ) < 0 ) {
+		if( dup2( fd_in[FD_WRITE], 1 ) < 0 )
 			x_printf(ctx, "Failed to set up STDOUT with %d\n", fd_in[FD_WRITE]);
-		}
-		if( dup2( fd_in[FD_WRITE], 2 ) < 0 ) {
+		if( dup2( fd_in[FD_WRITE], 2 ) < 0 )
 			x_printf(ctx, "Failed to set up STDERR with %d\n", fd_in[FD_WRITE]);
-		}
-
-		close( fd_in[FD_READ] );
-		close( fd_in[FD_WRITE] );
-		close( fd_out[FD_READ] );
-		close( fd_out[FD_WRITE] );
 
 		sigset_t all_signals;
 		sigemptyset( &all_signals );
@@ -301,11 +266,11 @@ int exec_launch( context_t *ctx, int use_tty )
 		sigaddset( &all_signals, SIGCHLD );
 		sigprocmask(SIG_SETMASK, &all_signals, NULL);
 
-		//for(fd = 3; fd < 1024; fd ++)
-			//close(fd);
+		int fd;
+		for(fd = 3; fd < 1024; fd ++)
+			close(fd);
 		
 		execv(exe,vec);
-		x_printf(ctx,"%s - Execv failed!\n", ctx->name);
 		exit(-128);
 	}
 
@@ -335,10 +300,10 @@ ssize_t exec_handler(context_t *ctx, event_t event, driver_data_t *event_data )
 
 				if( config_istrue( ctx->config, "tty" ) )
 					cf->flags |= EXEC_TTY_REQUIRED;
+				cf->tty = cf->flags & EXEC_TTY_REQUIRED;
 
-				if( ! exec_launch( ctx, (int) (cf->flags & EXEC_TTY_REQUIRED) ) ) {
+				if( ! exec_launch( ctx, cf->tty ) ) {
 					cf->state = EXEC_STATE_RUNNING;
-					cf->tty = cf->flags & EXEC_TTY_REQUIRED;
 					// Let the parent know the process has started/restarted
 					driver_data_t notification = { TYPE_CHILD, ctx, {} };
 					notification.event_child.action = CHILD_EVENT;
@@ -362,6 +327,7 @@ ssize_t exec_handler(context_t *ctx, event_t event, driver_data_t *event_data )
 					event_delete( ctx, cf->fd_out, EH_NONE );
 					close( cf->fd_out );
 				}
+				// TERMINATING status is handled during the TICK event
 				cf->flags |= EXEC_TERMINATING;
 			} else
 				context_terminate( ctx );
@@ -405,8 +371,6 @@ ssize_t exec_handler(context_t *ctx, event_t event, driver_data_t *event_data )
 				cf->state = EXEC_STATE_STOPPING;
 
 				cf->pending_action_timestamp = rel_time(0L);
-
-                x_printf(ctx,"%s - Got a restart request (signal = %d)..\n", ctx->name, sig);
             }
 			break;
 
@@ -424,16 +388,11 @@ ssize_t exec_handler(context_t *ctx, event_t event, driver_data_t *event_data )
 			break;
 
 		case EVENT_WRITE:
-			
-			if( cf->fd_out ) {
-				if( u_ringbuf_ready( &cf->output )) {
-					u_ringbuf_write_fd( &cf->output, cf->fd_out );
-				}
+			if( u_ringbuf_ready( &cf->output ))
+				u_ringbuf_write_fd( &cf->output, cf->fd_out );
 
-				if( u_ringbuf_empty( &cf->output ) )
-					event_delete( ctx, cf->fd_out, EH_WRITE );
-			}
-
+			if( u_ringbuf_empty( &cf->output ) )
+				event_delete( ctx, cf->fd_out, EH_WRITE );
 			break;
 
 		case EVENT_READ:
@@ -462,24 +421,21 @@ ssize_t exec_handler(context_t *ctx, event_t event, driver_data_t *event_data )
 					} else
 						x_printf(ctx," * WARNING: read return unexpected result %d\n",result);
 				} else {
-					x_printf(ctx,"%s - EOF on input. Cleaning up\n", ctx->name);
-					if( fd->fd == cf->fd_in ) {
+					event_delete( ctx, cf->fd_in, EH_NONE );
+					close( cf->fd_in );
+					cf->fd_in = -1;
+					if( cf->tty )
+						cf->fd_out = -1;
 
-						event_delete( ctx, cf->fd_in, EH_NONE );
-						close( cf->fd_in );
-						cf->fd_in = -1;
-
-						if( cf->state == EXEC_STATE_STOPPING ) {
-							if( (cf->flags & (EXEC_RESPAWN|EXEC_TERMINATING)) == EXEC_RESPAWN ) {
-								cf->state = EXEC_STATE_IDLE;
-								cf->pending_action_timestamp = rel_time(0L);
-							} else
-								return context_terminate( ctx );
+					if( cf->state == EXEC_STATE_STOPPING ) {
+						if( (cf->flags & (EXEC_RESPAWN|EXEC_TERMINATING)) == EXEC_RESPAWN ) {
+							cf->state = EXEC_STATE_IDLE;
+							cf->pending_action_timestamp = rel_time(0L);
 						} else
-							cf->state = EXEC_STATE_STOPPING;
-					}
+							return context_terminate( ctx );
+					} else
+						cf->state = EXEC_STATE_STOPPING;
 				}
-
 			}
 			break;
 
@@ -490,7 +446,6 @@ ssize_t exec_handler(context_t *ctx, event_t event, driver_data_t *event_data )
 
 		case EVENT_SIGNAL:
 			if( event_data->event_signal == SIGCHLD ) {
-				x_printf(ctx,"%s - Reaping deceased child (expecting pid %d)\n",ctx->name, cf->pid);
 				int status;
 				int rc = event_waitchld(&status, cf->pid);
 
@@ -503,61 +458,41 @@ ssize_t exec_handler(context_t *ctx, event_t event, driver_data_t *event_data )
 						event_delete( ctx, cf->fd_out, EH_NONE );
 					}
 					cf->fd_out = -1;
+
 					// Program termination already signalled
 					if( cf->state == EXEC_STATE_STOPPING ) {
-
-						x_printf(ctx,"state is STOPPING.\n");
-
 						if( ( ! (cf->flags & EXEC_TERMINATING )) && ( cf->flags & (EXEC_RESPAWN|EXEC_RESTARTING))) {
 							cf->flags &= ~(unsigned int)EXEC_RESTARTING;
-							x_printf(ctx,"setting up for respawn after %d seconds.\n",cf->restart_delay);
 							cf->state = EXEC_STATE_IDLE;
 							cf->pending_action_timestamp = rel_time(0L);
 						} else
 							return context_terminate( ctx );
-
-					} else {
-						x_printf(ctx,"Signal before EOF.  Setting state to STOPPING\n");
-						// Process may have terminated, but you cannot assume output has drained.
+					} else
 						cf->state = EXEC_STATE_STOPPING;
-					}
-				} else {
-					x_printf(ctx, "PID does not match.  Ignoring.\n");
 				}
 			}
 			break;
 
 		case EVENT_TICK:
 			{
-				time_t now = rel_time(0L);
+				time_t now = cf->last_tick = rel_time(0L);
 
-				cf->last_tick = now;
 				if( cf->flags & (EXEC_TERMINATING|EXEC_RESTARTING) ) {
 					if( cf->pid > 0 ) {
-						if(( now - cf->pending_action_timestamp ) > (EXEC_PROCESS_TERMINATION_TIMEOUT*2) ) {
-							x_printf(ctx,"%s - REALLY Pushing it along with a SIGKILL (pid = %d)\n", ctx->name, cf->pid);
+						if(( now - cf->pending_action_timestamp ) > (EXEC_PROCESS_TERMINATION_TIMEOUT*2) )
 							kill( cf->pid, SIGKILL );
-						} else if(( now - cf->pending_action_timestamp ) > EXEC_PROCESS_TERMINATION_TIMEOUT ) {
-							x_printf(ctx,"%s - Pushing it along with a SIGTERM (pid = %d)\n", ctx->name, cf->pid);
+						else if(( now - cf->pending_action_timestamp ) > EXEC_PROCESS_TERMINATION_TIMEOUT )
 							kill( cf->pid, SIGTERM );
-						}
 					}
 				}
 
-				if( cf->state == EXEC_STATE_IDLE ) {
-					x_printf(ctx,"process state is idle.  process is not running.\n");
-					x_printf(ctx,"timer = %ld seconds\n", now - cf->pending_action_timestamp );
-				}
-
-				if( (cf->state == EXEC_STATE_IDLE) && (( now - cf->pending_action_timestamp ) > cf->restart_delay )) {
-					x_printf(ctx,"Restart delay expired.  Restarting\n");
+				if( (cf->state == EXEC_STATE_IDLE) && (( now - cf->pending_action_timestamp ) > cf->restart_delay ))
 					emit( ctx, EVENT_INIT, DRIVER_DATA_NONE );
-				}
 			}
 			break;
 
 		default:
-			x_printf(ctx,"\n *\n *\n * %s - Emitted some kind of event \"%s\" (%d)\n *\n *\n", ctx->name, event_map[event], event);
+			break;
 	}
 	return 0;
 }

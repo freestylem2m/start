@@ -1,6 +1,3 @@
-#ifndef NDEBUG
-//#define NDEBUG
-#endif
 /******************************************************************************************************
 *
 * Freestyle Technology Pty Ltd
@@ -89,9 +86,7 @@ ssize_t u_ringbuf_write_fd( u_ringbuf_t *rb, int fd)
 		if( ( fixed_read + avail ) > RINGBUFFER_MAX )
 			avail = RINGBUFFER_MAX - fixed_read;
 
-		//d_printf("write(%d,%p,%d)\n",fd,rb->buffer + fixed_read, avail );
 		ssize_t written = write( fd, rb->buffer + fixed_read, avail );
-		//d_printf("bytes written = %d\n", written);
 
 		if( written > 0 ) {
 			bytes += written;
@@ -117,7 +112,7 @@ ssize_t u_ringbuf_write_fd( u_ringbuf_t *rb, int fd)
 // until the end of the buffer, adjusts itself, then restarts at the beginning
 // of the buffer.
 //
-ssize_t u_ringbuf_read( u_ringbuf_t *rb, void *buffer, size_t length)
+ssize_t u_ringbuf_read( u_ringbuf_t *rb, void *buffer, size_t length )
 {
 	size_t bytes = 0;
 
@@ -145,10 +140,7 @@ ssize_t u_ringbuf_read( u_ringbuf_t *rb, void *buffer, size_t length)
 //
 // Write data into the ring buffer.
 //
-// WARNING:  "length" must be <= "u_ringbuf_avail( rb )" or it will
-//           overwrite data not yet read from the buffer.
-//
-ssize_t u_ringbuf_write( u_ringbuf_t *rb, void *buffer, size_t length)
+ssize_t u_ringbuf_write( u_ringbuf_t *rb, void *buffer, size_t length )
 {
 	size_t bytes = 0;
 

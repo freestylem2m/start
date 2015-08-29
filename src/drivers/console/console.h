@@ -21,7 +21,6 @@ typedef enum {
 typedef struct console_config_t {
 	console_state_t state;
 	console_flags_t flags;
-	time_t last_tick;
 	int  fd_in;
 	int  fd_out;
 } console_config_t;

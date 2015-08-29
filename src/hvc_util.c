@@ -7,6 +7,8 @@
 * Name:            hvc_util.c
 *
 * Description:     Utility functions for HVC management
+*                  This serves to ensure the HVC functions are all aliased and can be
+*                  cleanly overridden where required
 *
 * Project:         Freestyle Micro Engine
 * Owner:           Freestyle Technology Pty Ltd

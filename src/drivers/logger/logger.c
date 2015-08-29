@@ -47,10 +47,6 @@
 
 int logger_init(context_t *context)
 {
-	//x_printf(ctx,"Hello from LOGGER INIT!\n");
-
-	// register "emit" as the event handler of choice
-	
 	logger_config_t *cf;
 
 	if ( 0 == (cf = (logger_config_t *) calloc( sizeof( logger_config_t ) , 1 )))
@@ -58,9 +54,6 @@ int logger_init(context_t *context)
 
 	cf->state = LOGGER_STATE_IDLE;
 	cf->log_fd = -1;
-
-	if( config_istrue( context->config, "respawn" ) )
-		cf->flags |= LOGGER_RESPAWN;
 
 	context->data = cf;
 
@@ -70,8 +63,6 @@ int logger_init(context_t *context)
 int logger_shutdown(context_t *ctx)
 {
 	logger_config_t *cf = (logger_config_t *) ctx->data;
-
-	x_printf(ctx,"Goodbye from LOGGER!\n");
 
 	if( cf->logger ) {
 		context_terminate( cf->logger );
@@ -87,37 +78,24 @@ int logger_shutdown(context_t *ctx)
 	return 1;
 }
 
-#define CMD_ARGS_MAX 32
-#define PATH_MAX 512
-
-#define MAX_READ_BUFFER 1024
 ssize_t logger_handler(context_t *ctx, event_t event, driver_data_t *event_data )
 {
 	event_data_t *data = 0L;
 
 	logger_config_t *cf = (logger_config_t *) ctx->data;
 
-	//x_printf(ctx,"> Event \"%s\" (%d)\n", event_map[event], event);
-
 	if( event_data->type == TYPE_DATA )
 		data = & event_data->event_data;
 
 	switch( event ) {
 		case EVENT_INIT:
-			{
-				cf->log_driver = config_get_item( ctx->config, "log_driver" );
-
-				if( cf->log_driver ) {
-					if( strchr( cf->log_driver, '/' ) ) {
-						x_printf(ctx, "Uding %s as a log-file target\n",cf->log_driver);
-						cf->log_fd = open( cf->log_driver, O_RDWR|O_APPEND|O_CREAT, 0777 );
-					} else {
-						x_printf(ctx,"Attempting to start log driver %s\n",cf->log_driver);
-						cf->logger = start_service( cf->log_driver, ctx->config, ctx );
-					}
-				}
-				cf->state = LOGGER_STATE_RUNNING;
+			if(( cf->log_driver = config_get_item( ctx->config, "log_driver" ) )) {
+				if( strchr( cf->log_driver, '/' ) )
+					cf->log_fd = open( cf->log_driver, O_RDWR|O_APPEND|O_CREAT, 0777 );
+				else
+					cf->logger = start_service( cf->log_driver, ctx->config, ctx );
 			}
+			cf->state = LOGGER_STATE_RUNNING;
 			break;
 
 		case EVENT_TERMINATE:
@@ -154,25 +132,7 @@ ssize_t logger_handler(context_t *ctx, event_t event, driver_data_t *event_data 
 			}
 			break;
 
-		case EVENT_EXCEPTION:
-			break;
-
-		case EVENT_SIGNAL:
-			x_printf(ctx,"Woa! Got a sign from the gods... %d\n",event_data->event_signal);
-			break;
-
-		case EVENT_TICK:
-			{
-				char buffer[64];
-				time_t now = rel_time(0L);
-				strftime(buffer,64,"%T",localtime(&now));
-				x_printf(ctx,"%s:   ** Tick (%ld useconds) **\n", buffer, cf->last_tick ? rel_time(0L)-cf->last_tick : -1);
-				rel_time( & cf->last_tick );
-			}
-			break;
-
 		default:
-			//x_printf(ctx,"\n *\n *\n * Emitted some kind of event \"%s\" (%d)\n *\n *\n", event_map[event], event);
 			break;
 	}
 	return 0;
