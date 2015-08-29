@@ -25,4 +25,7 @@
 #define _HVC_UTIL_H_
 
 extern int hvc_getTemperature(void);
+extern char *hvc_nvram_get(char *item);
+extern int hvc_nvram_set(char *item, char *value);
+
 #endif

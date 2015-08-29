@@ -41,7 +41,11 @@
 //
 
 #ifndef NDEBUG
+#ifdef mips
 char               *config_file = (char *)"/mnt/netmanage.conf";
+#else
+char               *config_file = (char *)"netmanage.conf";
+#endif
 char               *msg_filter = 0L;
 #else
 char               *config_file = (char *)"/flash/netmanage.conf";

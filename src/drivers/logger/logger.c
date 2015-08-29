@@ -93,7 +93,7 @@ ssize_t logger_handler(context_t *ctx, event_t event, driver_data_t *event_data 
 				if( strchr( cf->log_driver, '/' ) )
 					cf->log_fd = open( cf->log_driver, O_RDWR|O_APPEND|O_CREAT, 0777 );
 				else
-					cf->logger = start_service( cf->log_driver, ctx->config, ctx );
+					cf->logger = start_service( cf->log_driver, ctx->config, ctx, 0L );
 			}
 			cf->state = LOGGER_STATE_RUNNING;
 			break;

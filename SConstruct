@@ -5,7 +5,7 @@ import fnmatch
 
 top = Dir('#').path
 
-debug = ARGUMENTS.get('debug',0)
+debug = ARGUMENTS.get('debug','0')
 platform = ARGUMENTS.get('platform', 'i386')
 compiler = ARGUMENTS.get('compiler','gcc')
 
@@ -14,13 +14,7 @@ include_path = [
         top + '/src/drivers',
         ]
 
-libs = [
-        '-lrt',
-        ]
-
-hvclib = [
-        '/home/freestyle/git/FMEBuild/src/platform/hvc-50x/libHVC/libHVC.o',
-        ]
+libs = [ ]
 
 additional_objects = []
 
@@ -34,19 +28,16 @@ build_config.Append(CCFLAGS = '-Wall -Wconversion -Werror -Wshadow -Wunused-para
 if platform == 'i386':
     build_config.Append(CCFLAGS = '-Wenum-compare -Warray-bounds -m32' )
     build_config.Append(LINKFLAGS = '-m32' )
+    libs.append( '-lrt' )
 
 if platform == 'hvc-50x':
     print "Building for HVC"
     compiler = '/opt/buildroot-gcc342/bin/mipsel-linux-gcc'
     build_config.Replace(CC=compiler)
-    include_path.append( '/home/freestyle/git/FMEBuild/src/platform/hvc-50x/libHVC' )
-    additional_objects.append( hvclib )
 
-if debug == 0:
-    build_config.Append(CCFLAGS = '-fshort-enums -fbounds-check' )
-
-if debug == 0:
+if debug == '0':
     build_config.Append(CCFLAGS = '-DNDEBUG -O2' )
+    build_config.Append(CCFLAGS = '-fshort-enums -fbounds-check' )
 else:
     build_config.Append(CCFLAGS = '-g -O0' )
 
@@ -84,11 +75,14 @@ netmanage_binary = os.path.join(top,exe_dir,'netmanage')
 
 build_config.Clean( 'src/driver.c' , [ 'src/driver_setup.h', 'src/driver_config.h' ] );
 build_config.Append( CPPPATH = include_path )
+
 target = build_config.Program( netmanage_binary, source = [ main_source, additional_objects ], LIBS = libs )
 
-dest_dir = '/home/freestyle/fme'
-build_publish = Command( os.path.join(dest_dir, 'netmanage'), netmanage_binary, Copy("$TARGET","$SOURCE"))
-Depends(build_publish, target)
-Default(build_publish, target)
+
+if platform == 'hvc-50x':
+    dest_dir = '/home/freestyle/fme'
+    build_publish = Command( os.path.join(dest_dir, 'netmanage'), netmanage_binary, Copy("$TARGET","$SOURCE"))
+    Depends(build_publish, target)
+    Default(build_publish, target)
 
 #Return("build_config");

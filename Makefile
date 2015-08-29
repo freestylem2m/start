@@ -1,7 +1,7 @@
 
 PLATFORM=i386
 PLATFORM=hvc-50x
-DEBUG=1
+DEBUG=0
 
 all:
 	scons platform=$(PLATFORM) debug=$(DEBUG) -j5

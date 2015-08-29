@@ -245,7 +245,7 @@ int create_event_set( fd_set *readfds, fd_set *writefds, fd_set *exceptfds, int 
 			if( event_table[i].flags & EH_SPECIAL ) {
 
 				if( event_table[i].flags & EH_TIMER_FD )
-					FD_SET( (int) event_table[i].fd, readfds), count ++;
+					FD_SET( (unsigned int) event_table[i].fd, readfds), count ++;
 
 				if( event_table[i].flags & EH_TIMER )
 					count ++;
@@ -256,11 +256,11 @@ int create_event_set( fd_set *readfds, fd_set *writefds, fd_set *exceptfds, int 
 			} else {
 
 				if( event_table[i].flags & EH_READ )
-					FD_SET( (int) event_table[i].fd, readfds), count ++;
+					FD_SET( (unsigned int) event_table[i].fd, readfds), count ++;
 				if( event_table[i].flags & EH_WRITE )
-					FD_SET( (int) event_table[i].fd, writefds), count ++;
+					FD_SET( (unsigned int) event_table[i].fd, writefds), count ++;
 				if( event_table[i].flags & EH_EXCEPTION )
-					FD_SET( (int) event_table[i].fd, exceptfds), count ++;
+					FD_SET( (unsigned int) event_table[i].fd, exceptfds), count ++;
 
 				if( event_table[i].fd >= *max )
 					*max = event_table[i].fd+1;
@@ -360,13 +360,13 @@ int handle_event_set(fd_set * readfds, fd_set * writefds, fd_set * exceptfds)
 			data.event_request.fd = event_table[i].fd;
 			data.event_request.flags = event_table[i].flags;
 
-			if ((event_table[i].flags & EH_EXCEPTION) && FD_ISSET((int)event_table[i].fd, exceptfds))
+			if ((event_table[i].flags & EH_EXCEPTION) && FD_ISSET((unsigned int)event_table[i].fd, exceptfds))
 				event_table[i].ctx->driver->emit(event_table[i].ctx, EVENT_EXCEPTION, &data);
 
-			if ((event_table[i].flags & EH_WRITE) && FD_ISSET((int)event_table[i].fd, writefds))
+			if ((event_table[i].flags & EH_WRITE) && FD_ISSET((unsigned int)event_table[i].fd, writefds))
 				event_table[i].ctx->driver->emit(event_table[i].ctx, EVENT_WRITE, &data);
 
-			if ((event_table[i].flags & EH_READ) && FD_ISSET((int)event_table[i].fd, readfds))
+			if ((event_table[i].flags & EH_READ) && FD_ISSET((unsigned int)event_table[i].fd, readfds))
 				event_table[i].ctx->driver->emit(event_table[i].ctx, EVENT_READ, &data);
 
 		} else if (event_table[i].flags & EH_TIMER)

@@ -84,7 +84,7 @@ const char *get_env( context_t *ctx, const char *name )
 	return value;
 }
 
-context_t *start_driver( const char *driver_name, const char *context_name, const config_t *parent_config, context_t *owner )
+context_t *start_driver( const char *driver_name, const char *context_name, const config_t *parent_config, context_t *owner, void *pdata )
 {
 	const driver_t     *driver;
 	const config_t     *driver_config;
@@ -102,8 +102,10 @@ context_t *start_driver( const char *driver_name, const char *context_name, cons
 			ctx->owner = owner;
 			if (driver->init(ctx)) {
 				context_owner_notify(ctx, CHILD_STARTING, 0);
-				ctx->driver->emit(ctx, EVENT_INIT, DRIVER_DATA_NONE);
-				context_owner_notify(ctx, ctx->state == CTX_UNUSED ? CHILD_FAILED : CHILD_STARTED, 0);
+				driver_data_t notification = { TYPE_CUSTOM, owner, {} };
+				notification.event_custom = pdata;
+				ctx->driver->emit(ctx, EVENT_INIT, &notification);
+				context_owner_notify(ctx, (child_status_t) ( ctx->state == CTX_UNUSED ? CHILD_FAILED : CHILD_STARTED ), 0);
 				return ctx;
 			} else
 				context_delete(ctx, NULL);

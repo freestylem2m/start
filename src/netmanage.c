@@ -37,12 +37,12 @@
 #include "driver.h"
 #include "events.h"
 
-context_t *safe_start_service( const char *name, const config_t *parent_config, context_t *owner, int depth )
+context_t *safe_start_service( const char *name, const config_t *parent_config, context_t *owner, void *pdata, int depth )
 {
 	context_t *ctx = 0L;
 
 	if( find_driver( name ) )
-		return start_driver( name, parent_config->section, parent_config, owner );
+		return start_driver( name, parent_config->section, parent_config, owner, pdata );
 
 	const config_t *service_config = config_get_section( name );
 
@@ -56,7 +56,7 @@ context_t *safe_start_service( const char *name, const config_t *parent_config, 
 		while( driver_list && *driver_list ) {
 			const char     *driver_name = *driver_list++;
 			if( driver_name )
-				if( (ctx = start_driver( driver_name, name, service_config, owner )) )
+				if( (ctx = start_driver( driver_name, name, service_config, owner, pdata )) )
                     continue;
 
 			driver_list = 0L; // all failures end up here.
@@ -65,9 +65,9 @@ context_t *safe_start_service( const char *name, const config_t *parent_config, 
 	return ctx;
 }
 
-context_t *start_service( const char *name, const config_t *parent_config, context_t *owner )
+context_t *start_service( const char *name, const config_t *parent_config, context_t *owner, void *pdata )
 {
-    return safe_start_service( name, parent_config, owner, 0 );
+    return safe_start_service( name, parent_config, owner, pdata, 0 );
 }
 
 void run()
@@ -78,6 +78,8 @@ void run()
 
 	d_printf("I'm outa here!\n");
 }
+
+#include "hvc_util.h"
 
 int main(int ac, char *av[])
 {
@@ -97,8 +99,25 @@ int main(int ac, char *av[])
 
 	event_subsystem_init();
 
+	int temp = hvc_getTemperature();
+	printf("temp = %d\n",temp);
+
+	char *val = hvc_nvram_get( "wan_3g_apn" );
+	printf("apn = [%s]\n",val);
+
+	val = hvc_nvram_get( "test" );
+	printf("test = [%s]\n",val);
+
+	if( hvc_nvram_set( "test", "jake" ) != 0 )
+		printf("nvram_set return error\n");
+
+	val = hvc_nvram_get( "test" );
+	printf("test = [%s]\n",val);
+
+	exit(0);
+
 	while( *default_service ) {
-		context_t *coord = start_service(*default_service, config_get_section( "global" ), 0L );
+		context_t *coord = start_service(*default_service, config_get_section( "global" ), 0L, 0L );
 
 		if( !coord ) {
 			fprintf(stderr,"Failed to start default service (%s)\n", *default_service );

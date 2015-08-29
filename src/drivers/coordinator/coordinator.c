@@ -97,7 +97,7 @@ ssize_t coordinator_handler(context_t *ctx, event_t event, driver_data_t *event_
 				cf->flags |= COORDINATOR_NETWORK_DISABLE;
 
                 if( log )
-                    cf->logger = start_service( log, ctx->config, ctx );
+                    cf->logger = start_service( log, ctx->config, ctx, 0L );
 
 				cf->state = COORDINATOR_STATE_RUNNING;
 
@@ -141,7 +141,7 @@ ssize_t coordinator_handler(context_t *ctx, event_t event, driver_data_t *event_
 									notification.event_custom = &sig;
 									emit( cf->network, EVENT_RESTART, &notification );
 								} else {
-									cf->network = start_service( cf->network_driver, ctx->config, ctx );
+									cf->network = start_service( cf->network_driver, ctx->config, ctx, 0L );
 									if( !cf->network ) 
 										cf->flags |= COORDINATOR_TERMINATING;
 								}
@@ -224,7 +224,7 @@ int check_control_file(context_t *ctx)
 			// ensure connection happens
 			cf->flags &= ~(unsigned int)COORDINATOR_NETWORK_DISABLE; 
 			if( cf->modem_driver )
-				cf->unicorn = start_service( cf->modem_driver, ctx->config, ctx );
+				cf->unicorn = start_service( cf->modem_driver, ctx->config, ctx, 0L );
 		}
 	} else {
 		if( !control ) {

@@ -227,7 +227,7 @@ ssize_t unicorn_handler(context_t *ctx, event_t event, driver_data_t *event_data
 
 			const char *endpoint = config_get_item( ctx->config, "endpoint" );
 			if( endpoint )
-				cf->modem = start_service( endpoint, ctx->config, ctx );
+				cf->modem = start_service( endpoint, ctx->config, ctx, 0L );
 
 			if( !cf->modem ) {
 				logger( ctx->owner, ctx, "Unable to start endpoint driver. Exiting\n" );
@@ -386,7 +386,7 @@ ssize_t unicorn_handler(context_t *ctx, event_t event, driver_data_t *event_data
 				cf->pending_action_timeout = rel_time(0L);
 				const char *endpoint = config_get_item( ctx->config, "endpoint" );
 				if( endpoint )
-					cf->modem = start_service( endpoint, ctx->config, ctx );
+					cf->modem = start_service( endpoint, ctx->config, ctx, 0L );
 			}
 
 			if( (cf->flags & UNICORN_WAITING_FOR_CONNECT) && ((now - cf->pending_action_timeout) > UNICORN_CONNECT_TIMEOUT )) {
