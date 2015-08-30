@@ -23,6 +23,8 @@ typedef enum {
 	COORDINATOR_MODEM_UP    = 4,
 	COORDINATOR_MODEM_ONLINE = 8,
 	COORDINATOR_NETWORK_DISABLE = 16,
+	COORDINATOR_VPN_DISABLE = 32,
+	COORDINATOR_VPN_STANDALONE = 64,
 } coordinator_flags_t;
 
 typedef struct coordinator_config_t {
@@ -31,13 +33,15 @@ typedef struct coordinator_config_t {
 
 	const char *modem_driver;
 	const char *network_driver;
+	const char *vpn_driver;
 
-	const char *control_file;
+	const char *control_modem;
+	const char *control_vpn;
 
     context_t *logger;
     context_t *unicorn;
     context_t *network;
-    //context_t *vpn;
+    context_t *vpn;
 	
 	int        timer_fd;
 } coordinator_config_t;
@@ -45,5 +49,5 @@ typedef struct coordinator_config_t {
 extern int coordinator_init(context_t *);
 extern int coordinator_shutdown(context_t *);
 extern ssize_t coordinator_handler(context_t *, event_t event, driver_data_t *event_data);
-extern int check_control_file(context_t *ctx) ;
+extern int check_control_files(context_t *ctx) ;
 #endif
