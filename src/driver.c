@@ -54,37 +54,44 @@ driver_data_t driver_data_dummy = { TYPE_NONE, 0L, {} };
 #define ENV_MAX 64
 const char *get_env( context_t *ctx, const char *name )
 {
-	const char *value = config_get_item( ctx->config, name );
-	if( !value && ctx->owner )
-		value = config_get_item( ctx->owner->config, name );
-	if( !value && ctx->driver_config )
-		value = config_get_item( ctx->driver_config, name );
+	const char *value;
 
 	// Construct an environment variable name from the service name and the item name
-	// service 'media' looking for item 'folder' will check for 'MEDIA_FOLDER' in the 
+	// service 'media' looking for item 'folder' will check for 'MEDIA_FOLDER' in the
 	// environment
 
-	if( !value ) {
-		char env_name[ENV_MAX];
-		int  ei = 0;
-		const char *p = ctx->name;
-		while (*p && ei < ENV_MAX)
+	char env_name[ENV_MAX];
+	int  ei = 0;
+	const char *p;
+
+	if( ctx && ctx->name ) {
+		p = ctx->name;
+
+		while (*p && ei < ENV_MAX-2)
 			env_name[ei++] = (char) toupper( *p++ );
-		if( ei < ENV_MAX ) {
-			env_name[ei++] = '_';
-			p = name;
-			while (*p && ei < ENV_MAX)
-				env_name[ei++] = (char) toupper( *p++ );
-		}
-		if( ei < ENV_MAX )
-			env_name[ei] = 0;
-		env_name[ENV_MAX-1] = 0;
-		value = getenv(env_name);
+
+		env_name[ei++] = '_';
 	}
+
+	p = name;
+	while (*p && ei < ENV_MAX-1)
+		env_name[ei++] = (char) toupper( *p++ );
+
+	env_name[ei] = 0;
+	value = getenv(env_name);
+
+	if( !value && ctx ) {
+		value = config_get_item( ctx->config, name );
+		if( !value && ctx->owner )
+			value = config_get_item( ctx->owner->config, name );
+		if( !value && ctx->driver_config )
+			value = config_get_item( ctx->driver_config, name );
+	}
+
 	return value;
 }
 
-context_t *start_driver( const char *driver_name, const char *context_name, const config_t *parent_config, context_t *owner, void *pdata )
+context_t *start_driver( context_t **pctx, const char *driver_name, const char *context_name, const config_t *parent_config, context_t *owner, void *pdata )
 {
 	const driver_t     *driver;
 	const config_t     *driver_config;
@@ -93,19 +100,30 @@ context_t *start_driver( const char *driver_name, const char *context_name, cons
 	if (!context_name)
 		context_name = driver_name;
 
-	if ((ctx = find_context(context_name)))
+	if ((ctx = find_context(driver_name))) {
+		d_printf("find_context(%s) found %p (%p)\n",driver_name, ctx, ctx->name);
+		if( pctx )
+			*pctx = ctx;
 		return ctx;
+	}
 
 	driver_config = config_get_section(driver_name);
 	if(( driver = find_driver(driver_name) )) {
 		if (( ctx = context_create(context_name, parent_config, driver, driver_config) )) {
 			ctx->owner = owner;
 			if (driver->init(ctx)) {
-				context_owner_notify(ctx, CHILD_STARTING, 0);
+				if( pctx )
+					*pctx = ctx;
 				driver_data_t notification = { TYPE_CUSTOM, owner, {} };
 				notification.event_custom = pdata;
 				ctx->driver->emit(ctx, EVENT_INIT, &notification);
-				context_owner_notify(ctx, (child_status_t) ( ctx->state == CTX_UNUSED ? CHILD_FAILED : CHILD_STARTED ), 0);
+				printf("driver %s state = %d\n",ctx->name, ctx->state);
+
+				if( ctx->state == CTX_UNUSED ) {
+					d_printf("Driver %s failed to start, cleaning context pointer\n", ctx->name);
+					*pctx = ctx = 0L;
+				}
+
 				return ctx;
 			} else
 				context_delete(ctx, NULL);
@@ -131,7 +149,7 @@ const driver_t *find_driver( const char *driver )
 context_t *context_find_entry( const char *name )
 {
 	int i;
-	
+
 	for( i = 0; i < MAX_CONTEXTS; i++ )
 		if( (context_table[i].state != CTX_UNUSED) && (!strcasecmp(context_table[i].name, name)))
 			return &context_table[i];

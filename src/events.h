@@ -57,6 +57,7 @@ typedef enum
 {
 	EVENT_NONE,
 	EVENT_INIT,
+	EVENT_START,
 	EVENT_READ,
 	EVENT_WRITE,
 	EVENT_EXCEPTION,
@@ -186,9 +187,9 @@ typedef struct event_request_s
 	context_t          *ctx;
 
 	// File descriptor or Signal (depending on flags)
-	int                 fd;
+	long       fd;
+	time_t     timestamp;
 	event_handler_flags_t flags;
-	struct fd_list_s   *next;
 } event_request_t;
 
 typedef struct driver_data_s
@@ -265,9 +266,9 @@ extern context_t    context_table[MAX_CONTEXTS];
 extern event_request_t event_table[MAX_EVENT_REQUESTS];
 
 extern int          event_subsystem_init(void);
-extern event_request_t *event_find(const context_t * ctx, int fd, const unsigned int flags);
-extern event_request_t *event_set(const context_t * ctx, int fd, unsigned int flags);
-extern event_request_t *event_add(context_t * ctx, const int fd, unsigned int flags);
+extern event_request_t *event_find(const context_t * ctx, long fd, const unsigned int flags);
+extern event_request_t *event_set(const context_t * ctx, long fd, unsigned int flags);
+extern event_request_t *event_add(context_t * ctx, const long fd, unsigned int flags);
 extern void         event_delete(context_t * ctx, int fd, event_handler_flags_t flags);
 
 extern int          alarm_add(context_t * ctx, time_t interval, event_alarm_flags_t flags);

@@ -75,7 +75,7 @@ ssize_t temperature_logger_handler(context_t *ctx, event_t event, driver_data_t 
 	switch (event) {
 		case EVENT_INIT:
 			{
-				unsigned int interval = config_get_timeval( ctx->config, "interval" );
+				time_t interval = config_get_timeval( ctx->config, "interval" );
 				cf->logfile = config_get_item( ctx->config, "logfile" );
 				cf->format_str = config_get_item( ctx->config, "format" );
 

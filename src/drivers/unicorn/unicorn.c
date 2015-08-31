@@ -98,45 +98,52 @@ ssize_t process_unicorn_header( context_t *ctx )
 	unicorn_config_t *cf = ctx->data;
 
 	switch( cf->msgHdr.cmd ) {
-		case CMD_KEEPALIVE:
 		case CMD_READY:
+			// If the driver has JUST STARTED, then it bring the network online immediately, otherwise
+			// the retry delay takes effect
+			cf->flags |= UNICORN_FIRST_START;
+			cf->driver_state = CMD_ST_UNKNOWN;
+		case CMD_KEEPALIVE:
 		case CMD_STATE:
 			if( cf->msgHdr.state != cf->driver_state ) {
-				cf->last_state_timestamp = cf->last_message;
-				x_printf(ctx,"Handling state change. cf->flags = %x (terminating %s)\n", cf->flags, cf->flags&UNICORN_TERMINATING?"true":"false");
-				if( cf->msgHdr.state == CMD_ST_ONLINE || cf->msgHdr.state == CMD_ST_ONLINE  ) {
+
+				if( cf->msgHdr.state == CMD_ST_ONLINE || cf->msgHdr.state == CMD_ST_OFFLINE || cf->msgHdr.state == CMD_ST_ERROR ) {
 					x_printf(ctx,"Notifying parent that the network state has changed to %s\n",cf->msgHdr.state == CMD_ST_ONLINE ? "online":"offline");
 					context_owner_notify( ctx, CHILD_EVENT, cf->msgHdr.state == CMD_ST_ONLINE ? UNICORN_MODE_ONLINE : UNICORN_MODE_OFFLINE );
 				}
+
 				if( cf->flags & UNICORN_TERMINATING ) {
 					x_printf(ctx,"State = TERMINATING, need to shutdown driver\n");
-					if( cf->msgHdr.state == CMD_ST_OFFLINE ) {
-						x_printf(ctx,"modem is offline. shutting down driver\n");
+					if( cf->msgHdr.state == CMD_ST_OFFLINE )
 						send_unicorn_command( ctx, CMD_SHUTDOWN, CMD_ST_OFFLINE, 0, 0L );
-#if 0
-						if( cf->modem ) {
-							emit(cf->modem, EVENT_TERMINATE, 0L);
-							context_terminate( ctx );
-						}
-#endif
-					} else {
-						// This may happen multiple times if current state 'in progress'
+					else
 						send_unicorn_command( ctx, CMD_DISCONNECT, CMD_ST_OFFLINE, 0, 0L );
-					}
-				} else if( cf->flags & UNICORN_DISABLE ) {
-					if( cf->msgHdr.state == CMD_ST_ONLINE ) {
-						x_printf(ctx,"unicorn is disabled. Shutting down driver\n");
-						send_unicorn_command( ctx, CMD_DISCONNECT, CMD_ST_OFFLINE, 0, 0L );
-					}
 				} else {
-					if( cf->msgHdr.state == CMD_ST_OFFLINE ) {
-						x_printf(ctx,"Sending CONNECT command (Setting WAITING_FOR_CONNECT FLAG)\n");
-						cf->flags |= UNICORN_WAITING_FOR_CONNECT;
-						cf->pending_action_timeout = cf->last_state_timestamp;
-						send_unicorn_command(ctx, CMD_CONNECT, CMD_ST_ONLINE, 0, 0 );
-					} else if( cf->msgHdr.state == CMD_ST_ONLINE ) {
-						x_printf(ctx,"State is Online - resetting WAITING_FOR_CONNECT\n");
-						cf->flags &= ~(unsigned int) UNICORN_WAITING_FOR_CONNECT;
+					switch( cf->msgHdr.state ) {
+						case CMD_ST_ONLINE:
+							x_printf(ctx,"State is Online - resetting WAITING_FOR_CONNECT/RECONNECTING status\n");
+							cf->flags &= ~(unsigned int) (UNICORN_WAITING_FOR_CONNECT|UNICORN_RECONNECTING|UNICORN_FIRST_START);
+							break;
+						case CMD_ST_OFFLINE:
+							x_printf(ctx,"Sending CONNECT command (Setting WAITING_FOR_CONNECT/RECONNECTING FLAG)\n");
+							// RECONNECTING causes a CMD_CONNECT to be sent after the RETRY delay
+							// WAITING_FOR_CONNECT causes the timeout handler to kill the modem driver if a
+							// connect does not occur before a specified window of time has elapsed
+							cf->pending_action_timeout = cf->last_message;
+							// Special case, in a first start scenario, don't wait retry
+							if( cf->flags & UNICORN_FIRST_START) {
+								x_printf(ctx,"Forcing connection - FIRST_START is set\n");
+								send_unicorn_command(ctx, CMD_CONNECT, CMD_ST_ONLINE, 0, 0 );
+								cf->flags |= UNICORN_WAITING_FOR_CONNECT;
+							} else {
+								x_printf(ctx,"Setting up for delayed connection\n");
+								cf->flags |= UNICORN_WAITING_FOR_CONNECT|UNICORN_RECONNECTING;
+							}
+							break;
+						case CMD_ST_ERROR:
+							break;
+						default:
+							break;
 					}
 				}
 				cf->driver_state = cf->msgHdr.state;
@@ -219,15 +226,18 @@ ssize_t unicorn_handler(context_t *ctx, event_t event, driver_data_t *event_data
 	switch (event) {
 	case EVENT_INIT:
 		{
-			x_printf(ctx,"UNICORN INIT event triggered\n");
-
 			event_add( ctx, SIGQUIT, EH_SIGNAL );
 			event_add( ctx, SIGTERM, EH_SIGNAL );
-			event_add( ctx, 0, EH_WANT_TICK );
+			event_add( ctx, 1000, EH_WANT_TICK );
 
 			const char *endpoint = config_get_item( ctx->config, "endpoint" );
+
+			cf->retry_time = config_get_timeval( ctx->config, "retry" );
+			if( !cf->retry_time )
+				cf->retry_time = 120*1000;
+
 			if( endpoint )
-				cf->modem = start_service( endpoint, ctx->config, ctx, 0L );
+				start_service( &cf->modem, endpoint, ctx->config, ctx, 0L );
 
 			if( !cf->modem ) {
 				logger( ctx->owner, ctx, "Unable to start endpoint driver. Exiting\n" );
@@ -265,7 +275,7 @@ ssize_t unicorn_handler(context_t *ctx, event_t event, driver_data_t *event_data
 		break;
 
 	case EVENT_RESTART:
-		// This event is used to signal that the modem driver needs to resync. 
+		// This event is used to signal that the modem driver needs to resync.
 		// set the 'reconnecting' flag and send a disconnect
 		if( event_data->source == ctx->owner ) {
 			cf->pending_action_timeout = rel_time(0L);
@@ -280,7 +290,6 @@ ssize_t unicorn_handler(context_t *ctx, event_t event, driver_data_t *event_data
 		x_printf(ctx,"Got a message from a child (%s:%d).. probably starting\n", child->ctx->name, child->action);
 		if ( child->ctx == cf->modem ) {
 			if( child->action == CHILD_STARTING ) {
-				cf->driver_state = 0xFFFF;
 				cf->state = UNICORN_STATE_RUNNING;
 				cf->flags &= ~(unsigned int) UNICORN_RESTARTING;
 			}
@@ -341,9 +350,8 @@ ssize_t unicorn_handler(context_t *ctx, event_t event, driver_data_t *event_data
 
 	case EVENT_SIGNAL:
 		x_printf(ctx,"Woa! Got a sign from the gods... %d\n", event_data->event_signal);
-		if( event_data->event_signal == SIGQUIT || event_data->event_signal == SIGTERM ) {
+		if( event_data->event_signal == SIGQUIT || event_data->event_signal == SIGTERM )
 			emit( ctx, EVENT_TERMINATE, 0L );
-		}
 		break;
 
 	case EVENT_TICK:
@@ -386,16 +394,19 @@ ssize_t unicorn_handler(context_t *ctx, event_t event, driver_data_t *event_data
 				cf->pending_action_timeout = rel_time(0L);
 				const char *endpoint = config_get_item( ctx->config, "endpoint" );
 				if( endpoint )
-					cf->modem = start_service( endpoint, ctx->config, ctx, 0L );
-			}
-
-			if( (cf->flags & UNICORN_WAITING_FOR_CONNECT) && ((now - cf->pending_action_timeout) > UNICORN_CONNECT_TIMEOUT )) {
+					start_service( &cf->modem, endpoint, ctx->config, ctx, 0L );
+			} else if( (cf->flags & UNICORN_RECONNECTING) && ((now - cf->pending_action_timeout) > cf->retry_time )) {
+				x_printf(ctx,"Reconnect delay expired - attempting reconnect\n");
+				cf->pending_action_timeout = rel_time(0L);
+				cf->flags &= ~(unsigned int)UNICORN_RECONNECTING;
+				if( cf->modem )
+					send_unicorn_command(ctx, CMD_CONNECT, CMD_ST_ONLINE, 0, 0 );
+			} else if( (cf->flags & UNICORN_WAITING_FOR_CONNECT) && ((now - cf->pending_action_timeout) > UNICORN_CONNECT_TIMEOUT )) {
 				x_printf(ctx,"Timeout during connect - terminating modem driver\n");
 				cf->flags &= ~(unsigned int) UNICORN_WAITING_FOR_CONNECT;
 				cf->state = UNICORN_STATE_IDLE;
 				if( cf->modem ) {
 					emit( cf->modem, EVENT_TERMINATE, 0L );
-					// context_terminate( cf->modem );
 				}
 			}
 

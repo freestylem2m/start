@@ -8,6 +8,7 @@ top = Dir('#').path
 debug = ARGUMENTS.get('debug','0')
 platform = ARGUMENTS.get('platform', 'i386')
 compiler = ARGUMENTS.get('compiler','gcc')
+uselibhvc  = ARGUMENTS.get('libhvc','0')
 
 include_path = [
         top + '/src',
@@ -15,6 +16,22 @@ include_path = [
         ]
 
 libs = [ ]
+
+hvc_inc = [
+        '/home/freestyle/git/FreestyleRalinkSDK/RT288x_SDK/source/lib/libnvram',
+        '/home/freestyle/git/FMEBuild/src/platform/hvc-50x/libHVC',
+        ]
+
+hvc_objs = [
+        '/home/freestyle/git/FMEBuild/src/platform/hvc-50x/libHVC/libHVC.o',
+        ]
+
+hvc_libpath = [
+        '-L/home/freestyle/git/FreestyleRalinkSDK/RT288x_SDK/source/lib/libnvram',
+        ]
+hvc_libs = [
+        '-lnvram',
+        ]
 
 additional_objects = []
 
@@ -24,9 +41,10 @@ VariantDir( build_dir, '.', duplicate=0 )
 
 build_config = Environment(ENV = os.environ)
 
-build_config.Append(CCFLAGS = '-Wall -Wconversion -Werror -Wshadow -Wunused-parameter')
+build_config.Append(CCFLAGS = '-Wall -Wconversion -Werror -Wunused-parameter')
+
 if platform == 'i386':
-    build_config.Append(CCFLAGS = '-Wenum-compare -Warray-bounds -m32' )
+    build_config.Append(CCFLAGS = '-Wenum-compare -Wshadow -Warray-bounds -m32' )
     build_config.Append(LINKFLAGS = '-m32' )
     libs.append( '-lrt' )
 
@@ -34,6 +52,12 @@ if platform == 'hvc-50x':
     print "Building for HVC"
     compiler = '/opt/buildroot-gcc342/bin/mipsel-linux-gcc'
     build_config.Replace(CC=compiler)
+    if uselibhvc != '0':
+        include_path.append( hvc_inc )
+        build_config.Append(CCFLAGS = '-DHVCLIBS' )
+        build_config.Append(LINKFLAGS = hvc_libpath )
+        additional_objects.append( hvc_objs )
+        libs.append( hvc_libs )
 
 if debug == '0':
     build_config.Append(CCFLAGS = '-DNDEBUG -O2' )

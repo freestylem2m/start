@@ -52,6 +52,7 @@
 char *event_map[] = {
 	"EVENT_NONE",
 	"EVENT_INIT",
+	"EVENT_START",
 	"EVENT_READ",
 	"EVENT_WRITE",
 	"EVENT_EXCEPTION",
@@ -129,7 +130,7 @@ int event_subsystem_init(void)
 	return 0;
 }
 
-event_request_t *event_find( const context_t *ctx, const int fd, const unsigned int flags )
+event_request_t *event_find( const context_t *ctx, const long fd, const unsigned int flags )
 {
 	unsigned int event_type = flags & EH_SPECIAL;
 
@@ -170,7 +171,7 @@ void event_alarm_delete( context_t *ctx, int fd )
 	alarm_delete( ctx, fd );
 }
 
-event_request_t *event_set( const context_t *ctx, const int fd, const unsigned int flags )
+event_request_t *event_set( const context_t *ctx, const long fd, const unsigned int flags )
 {
 	event_request_t *entry = event_find( ctx, fd, flags );
 
@@ -181,7 +182,7 @@ event_request_t *event_set( const context_t *ctx, const int fd, const unsigned i
 	return entry;
 }
 
-event_request_t *event_add( context_t *ctx, const int fd, unsigned int flags )
+event_request_t *event_add( context_t *ctx, const long fd, unsigned int flags )
 {
 	event_request_t *entry = event_find( ctx,  fd, flags );
 
@@ -206,6 +207,8 @@ event_request_t *event_add( context_t *ctx, const int fd, unsigned int flags )
 			sigaddset( &event_signals.event_signal_mask, fd );
 			sigdelset( &event_signals.event_signal_default, fd );
 		}
+	} else if( flags & EH_WANT_TICK ) {
+		entry->timestamp = rel_time(0L);
 	} else
 		// For un-special file descriptors, force non-blocking
         if( (flags & (EH_READ|EH_WRITE)) && ! ( flags & EH_SPECIAL ) )
@@ -360,22 +363,27 @@ int handle_event_set(fd_set * readfds, fd_set * writefds, fd_set * exceptfds)
 			data.event_request.fd = event_table[i].fd;
 			data.event_request.flags = event_table[i].flags;
 
-			if ((event_table[i].flags & EH_EXCEPTION) && FD_ISSET((unsigned int)event_table[i].fd, exceptfds))
+			if ((event_table[i].flags & EH_EXCEPTION) && FD_ISSET((unsigned int)event_table[i].fd, exceptfds)) {
+				//d_printf("Read event for %s\n",event_table[i].ctx->name);
 				event_table[i].ctx->driver->emit(event_table[i].ctx, EVENT_EXCEPTION, &data);
+			}
 
-			if ((event_table[i].flags & EH_WRITE) && FD_ISSET((unsigned int)event_table[i].fd, writefds))
+			if ((event_table[i].flags & EH_WRITE) && FD_ISSET((unsigned int)event_table[i].fd, writefds)) {
+				//d_printf("Write event for %s\n",event_table[i].ctx->name);
 				event_table[i].ctx->driver->emit(event_table[i].ctx, EVENT_WRITE, &data);
+			}
 
-			if ((event_table[i].flags & EH_READ) && FD_ISSET((unsigned int)event_table[i].fd, readfds))
+			if ((event_table[i].flags & EH_READ) && FD_ISSET((unsigned int)event_table[i].fd, readfds)) {
+				//d_printf("Exception event for %s\n",event_table[i].ctx->name);
 				event_table[i].ctx->driver->emit(event_table[i].ctx, EVENT_READ, &data);
+			}
 
-		} else if (event_table[i].flags & EH_TIMER)
+		} else if (event_table[i].flags & EH_TIMER) {
 
 			if (alarm_table[event_table[i].fd].event_time <= now) {
 				alarm_table[event_table[i].fd].flags |= ALARM_FIRED;
 
-				driver_data_t       data = { TYPE_ALARM, 0, {}
-				};
+				driver_data_t       data = { TYPE_ALARM, 0, {} };
 				data.event_alarm = event_table[i].fd;
 				event_table[i].ctx->driver->emit(event_table[i].ctx, EVENT_ALARM, &data);
 
@@ -383,6 +391,7 @@ int handle_event_set(fd_set * readfds, fd_set * writefds, fd_set * exceptfds)
 				if (alarm_table[event_table[i].fd].flags & ALARM_FIRED)
 					handle_event_alarm(&event_table[i]);
 			}
+		}
 	}
 	return 0;
 }
@@ -394,10 +403,16 @@ int handle_timer_events()
 	driver_data_t tick = { TYPE_TICK, 0L, {} };
 	tick.event_tick = rel_time(0L);
 
+	//d_printf("Checking tick requests..\n");
 	// All drivers get the same 'tick' timestamp, even if some drivers take time to process the tick
 	for(i = 0; i < MAX_EVENT_REQUESTS; i++ )
-		if( ((event_table[i].flags & EH_WANT_TICK) == EH_WANT_TICK) && ((event_table[i].flags & EH_SPECIAL) == 0 ))
-			event_table[i].ctx->driver->emit( event_table[i].ctx, EVENT_TICK, &tick );
+		if( ((event_table[i].flags & EH_WANT_TICK) == EH_WANT_TICK) && ((event_table[i].flags & EH_SPECIAL) == 0 )) {
+			//d_printf("event[%d] Delivering tick to %s if %ld > %ld\n",i, event_table[i].ctx->name, tick.event_tick, event_table[i].timestamp );
+			if( tick.event_tick > event_table[i].timestamp ) {
+				event_table[i].ctx->driver->emit( event_table[i].ctx, EVENT_TICK, &tick );
+				event_table[i].timestamp = tick.event_tick + (time_t) event_table[i].fd;
+			}
+		}
 
 	return 0;
 }
@@ -418,14 +433,16 @@ int event_loop( long timeout )
 		if( alarm_time > now ) {
 			if( timeout > ( alarm_time - now ))
 				timeout = alarm_time - now;
-		} else
+		} else {
+			d_printf("pending alarm. setting timeout to zero\n");
 			timeout = 0;
+		}
 	}
 
 #ifdef USE_PSELECT
 	// If I know there are signals which need processing, reset the select timeout to 0
 	// Signals are normally blocked, so these would be manufactured events.
-	struct timespec tm = { timeout / 1000, (timeout % 1000) * 1000 };
+	struct timespec tm = { timeout / 1000, (timeout % 1000) * 1000 * 1000 };
 
 	if( event_signals.event_signal_pending_count )
 		tm.tv_nsec = tm.tv_sec = 0;
@@ -436,10 +453,12 @@ int event_loop( long timeout )
 	sigprocmask( SIG_SETMASK, &event_signals.event_signal_default, NULL );
 	sleep(0);
 
-	if( event_signals.event_signal_pending_count )
+	if( event_signals.event_signal_pending_count ) {
+		d_printf("Pending signals - setting timeout = 0\n");
 		timeout = 0;
+	}
 
-	struct timeval tm = { timeout / 1000, (timeout % 1000) };
+	struct timeval tm = { timeout / 1000, (timeout % 1000) * 1000 };
 
 	int rc = select( max_fd, &fds_read, &fds_write, &fds_exception, &tm );
 #endif
@@ -453,8 +472,10 @@ int event_loop( long timeout )
 			return 0;
 	}
 
-	if( event_signals.event_signal_pending_count )
+	if( event_signals.event_signal_pending_count ) {
+		d_printf("Handling signal events...\n");
 		handle_pending_signals();
+	}
 
 	rc = handle_event_set( &fds_read, &fds_write, &fds_exception );
 

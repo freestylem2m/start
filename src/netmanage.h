@@ -28,6 +28,6 @@
 #define AT __FILE__":"TOSTRING(__LINE__)":"
 
 #define CONFIG_MAX_DEPTH 6
-extern context_t *start_service( const char *name, const config_t *parent_config, context_t *parent, void *pdata );
+extern context_t *start_service( context_t **pctx, const char *name, const config_t *parent_config, context_t *parent, void *pdata );
 
 #endif // __NETMANAGE_H__

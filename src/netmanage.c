@@ -37,12 +37,22 @@
 #include "driver.h"
 #include "events.h"
 
-context_t *safe_start_service( const char *name, const config_t *parent_config, context_t *owner, void *pdata, int depth )
+context_t *safe_start_service( context_t **pctx, const char *name, const config_t *parent_config, context_t *owner, void *pdata, int depth )
 {
 	context_t *ctx = 0L;
 
-	if( find_driver( name ) )
-		return start_driver( name, parent_config->section, parent_config, owner, pdata );
+	if( pctx )
+		printf("pctx = %p\n",*pctx);
+
+	if( find_driver( name ) ) {
+
+		d_printf("Calling start driver %s\n",name);
+		context_t *m = start_driver( pctx, name, parent_config->section, parent_config, owner, pdata );
+		d_printf("Start driver %s returned %p\n",name,m);
+		return m;
+
+		//return start_driver( pctx, name, parent_config->section, parent_config, owner, pdata );
+	}
 
 	const config_t *service_config = config_get_section( name );
 
@@ -56,18 +66,25 @@ context_t *safe_start_service( const char *name, const config_t *parent_config, 
 		while( driver_list && *driver_list ) {
 			const char     *driver_name = *driver_list++;
 			if( driver_name )
-				if( (ctx = start_driver( driver_name, name, service_config, owner, pdata )) )
+				if( (ctx = start_driver( pctx, driver_name, name, service_config, owner, pdata )) )
                     continue;
 
+			d_printf("last driver returned %p (pctx = %p)\n",ctx, *pctx);
+			if( pctx && *pctx )
+				d_printf("last driver aka %s\n",(*pctx)->name) ;
 			driver_list = 0L; // all failures end up here.
 		}
+	} else {
+        fprintf(stderr, "Unable to find service %s\n", name);
+        exit (0);
 	}
+	printf("Returning ctx = %p\n",ctx);
 	return ctx;
 }
 
-context_t *start_service( const char *name, const config_t *parent_config, context_t *owner, void *pdata )
+context_t *start_service( context_t **pctx, const char *name, const config_t *parent_config, context_t *owner, void *pdata )
 {
-    return safe_start_service( name, parent_config, owner, pdata, 0 );
+    return safe_start_service( pctx, name, parent_config, owner, pdata, 0 );
 }
 
 void run()
@@ -78,8 +95,6 @@ void run()
 
 	d_printf("I'm outa here!\n");
 }
-
-#include "hvc_util.h"
 
 int main(int ac, char *av[])
 {
@@ -99,25 +114,8 @@ int main(int ac, char *av[])
 
 	event_subsystem_init();
 
-	int temp = hvc_getTemperature();
-	printf("temp = %d\n",temp);
-
-	char *val = hvc_nvram_get( "wan_3g_apn" );
-	printf("apn = [%s]\n",val);
-
-	val = hvc_nvram_get( "test" );
-	printf("test = [%s]\n",val);
-
-	if( hvc_nvram_set( "test", "jake" ) != 0 )
-		printf("nvram_set return error\n");
-
-	val = hvc_nvram_get( "test" );
-	printf("test = [%s]\n",val);
-
-	exit(0);
-
 	while( *default_service ) {
-		context_t *coord = start_service(*default_service, config_get_section( "global" ), 0L, 0L );
+		context_t *coord = start_service( 0L, *default_service, config_get_section( "global" ), 0L, 0L );
 
 		if( !coord ) {
 			fprintf(stderr,"Failed to start default service (%s)\n", *default_service );

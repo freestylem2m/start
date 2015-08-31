@@ -97,12 +97,12 @@ ssize_t signal_handler(context_t *ctx, event_t event, driver_data_t *event_data 
 
 		case EVENT_READ:
 			{
-				x_printf(ctx,"Read event triggerred for fd = %d\n",fd->fd);
+				x_printf(ctx,"Read event triggerred for fd = %ld\n",fd->fd);
 				size_t bytes;
 				event_bytes( fd->fd, &bytes );
 				x_printf(ctx,"exec state = %d\n",cf->state );
 				if( bytes ) {
-					x_printf(ctx,"Read event for fd = %d (%d bytes)\n",fd->fd, bytes);
+					x_printf(ctx,"Read event for fd = %ld (%d bytes)\n",fd->fd, bytes);
 					char read_buffer[MAX_READ_BUFFER];
 
 					if( bytes >= MAX_READ_BUFFER ) {
@@ -121,14 +121,14 @@ ssize_t signal_handler(context_t *ctx, event_t event, driver_data_t *event_data 
 				} else {
 
 					x_printf(ctx,"EOF on input. Cleaning up\n");
-					x_printf(ctx,"event file descriptor (%d)\n",fd->fd);
+					x_printf(ctx,"event file descriptor (%ld)\n",fd->fd);
 				}
 
 			}
 			break;
 
 		case EVENT_EXCEPTION:
-			x_printf(ctx,"Got an exception on FD %d\n",fd->fd);
+			x_printf(ctx,"Got an exception on FD %ld\n",fd->fd);
 			break;
 
 		case EVENT_SIGNAL:

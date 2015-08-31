@@ -134,8 +134,6 @@ ssize_t syslog_handler(context_t *ctx, event_t event, driver_data_t *event_data)
 	switch (event) {
 		case EVENT_INIT:
 			{
-				x_printf(ctx,"SYSLOG INIT event triggered\n");
-
 				const char *options  = get_env( ctx, "options" );
 				const char *facility = get_env( ctx, "facility" );
 				const char *priority = get_env( ctx, "prio" );
@@ -168,9 +166,9 @@ ssize_t syslog_handler(context_t *ctx, event_t event, driver_data_t *event_data)
 
 				if( !cf->ident )
 					cf->ident = programname;
-
-				openlog( cf->ident, cf->options, cf->facility );
 			}
+		case EVENT_START:
+			openlog( cf->ident, cf->options, cf->facility );
 			break;
 
 		case EVENT_TERMINATE:

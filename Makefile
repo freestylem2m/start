@@ -1,10 +1,11 @@
 
 PLATFORM=i386
 PLATFORM=hvc-50x
-DEBUG=0
+DEBUG=1
+LIBHVC=0
 
 all:
-	scons platform=$(PLATFORM) debug=$(DEBUG) -j5
+	scons platform=$(PLATFORM) libhvc=$(LIBHVC) debug=$(DEBUG) -j5
 
 clean:
 	scons platform=$(PLATFORM) -c

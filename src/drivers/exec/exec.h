@@ -25,6 +25,13 @@ typedef enum {
     EXEC_TTY_REQUIRED = 8,
 } exec_flags_t;
 
+typedef enum {
+	TTY_NONE,
+	TTY_RAW=1,
+	TTY_ECHO=2,
+	TTY_NOECHO=4
+} exec_tty_flags_t;
+
 typedef struct exec_config_t {
 	exec_state_t state;
 	exec_flags_t flags;
@@ -32,6 +39,7 @@ typedef struct exec_config_t {
 	int fd_in;
 	int fd_out;
 	int tty;
+	exec_tty_flags_t tty_flags;
 	int restart_delay;
 	time_t last_tick;
 	time_t pending_action_timestamp;

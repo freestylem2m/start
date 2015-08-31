@@ -36,6 +36,9 @@
 int hvc_getTemperature(void)
 {
 #ifdef mips
+#ifdef HVCLIBS
+	int temp = hvcGetTemperature();
+#else
 	char *cmd = "hvcctl getTemperature";
 	FILE *p = popen( cmd, "r" );
 	char buffer[HVCCTL_MAX_LINE];
@@ -49,15 +52,19 @@ int hvc_getTemperature(void)
 		}
 		pclose(p);
 	}
+#endif
 	return temp;
 #else
 	return -1;
 #endif
 }
 
-char *hvc_nvram_get(char *item)
+const char *hvc_nvram_get(char *item)
 {
 #ifdef mips
+#ifdef HVCLIBS
+	const char *result = nvram_get( RT2860_NVRAM, item );
+#else
 	static char buffer[HVCCTL_MAX_LINE];
 	char cmd[HVCCTL_MAX_LINE];
 	char *result = 0L;
@@ -80,7 +87,7 @@ char *hvc_nvram_get(char *item)
 		if( pclose(p) == -1 )
 			result = 0L;
 	}
-
+#endif
 	return result;
 #else
 	UNUSED(item);

@@ -115,8 +115,10 @@ typedef enum {
 	UNICORD_UNEXPECTED_EXIT = 8,
 	UNICORN_WAITING_FOR_CONNECT = 16,
 	UNICORN_RESTARTING = 32,
-	UNICORN_DISABLE = 64,
-	UNICORN_TERMINATING = 128,
+	UNICORN_RECONNECTING = 64,
+	UNICORN_DISABLE = 128,
+	UNICORN_TERMINATING = 256,
+	UNICORN_FIRST_START = 512,
 } unicorn_flags_t;
 
 typedef struct unicorn_config_t {
@@ -127,7 +129,7 @@ typedef struct unicorn_config_t {
 	time_t last_message;
 	//time_t last_tick;
 	time_t pending_action_timeout;
-	time_t last_state_timestamp;
+	time_t retry_time;
 
 	frmHdr_t  msgHdr;
 	size_t   data_length;

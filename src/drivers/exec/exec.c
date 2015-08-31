@@ -38,6 +38,7 @@
 #include <sys/wait.h>
 #include <sys/stat.h>
 #include <stdint.h>
+#include <termios.h>
 
 #include <stdlib.h>
 #include <fcntl.h>
@@ -94,11 +95,60 @@ int exec_shutdown(context_t *ctx)
 
 #define CMD_ARGS_MAX 32
 #define PATH_MAX 512
+#define VAR_MAX  64
 
-char *process_command( char *cmd, char *exe, char **vec )
+char *process_command( context_t *ctx, char *cmd, size_t n_cmd, const char *cmdline, char *exe, char **vec )
 {
-	char           *cp = cmd;
+	char           *cp = (char *) cmdline;
 	int             px = 0;
+	size_t          ci = 0;
+
+	while( *cp ) {
+		switch (*cp) {
+			case '$':
+				{
+					cp++;
+					char varname[VAR_MAX];
+					int  iv = 0;
+					if( *cp == '{' || *cp == '(' ) {
+						char q = *cp++ == '{' ? '}' : ')';
+
+						while(( *cp && (q != *cp )) && (iv < VAR_MAX-1))
+							varname[iv++] = *cp ++;
+
+						if( *cp != q )
+							cp = 0;
+						else
+							cp ++;
+
+					} else
+						while( *cp && isalnum( *cp ) && (iv < VAR_MAX-1) )
+							varname[iv++] = *cp++;
+
+					varname[iv] = 0;
+
+					if( cp ) {
+						const char *var = get_env( ctx, varname );
+						if( var ) {
+							strncpy( &cmd[ci], var, n_cmd-ci );
+							ci += strlen( var );
+						} else
+							d_printf("Unable to find %s\n",varname);
+					}
+				}
+				break;
+				break;
+			case '\\':
+				cmd[ci++] = *cp++;
+			default:
+				cmd[ci++] = *cp++;
+				break;
+		}
+	}
+
+	cmd[ci++] = 0;
+
+	cp = cmd;
 
 	while (cp && *cp && px < (CMD_ARGS_MAX - 1)) {
 		size_t          seg = strcspn(cp, " \t\r\n\"'$");
@@ -122,15 +172,11 @@ char *process_command( char *cmd, char *exe, char **vec )
 					*cp++ = 0;
 			}
 			break;
-		case '$':
-			d_printf("Found a %c.. like I support variables..\n",*cp);
-			cp++;
-			break;
 		}
 	}
 
 	if (!cp) {
-		d_printf("Failing due to unterminated quote...\n");
+		d_printf("Failing due to unterminated quote or variable...\n");
 		return 0L;
 	}
 
@@ -163,6 +209,7 @@ char *process_command( char *cmd, char *exe, char **vec )
 				}
 				exe[0] = 0;
 			}
+			x_printf(ctx,"Command not found in path!!\n");
 			free(new_path);
 		}
 	}
@@ -181,23 +228,25 @@ int exec_launch( context_t *ctx, int use_tty )
 	if( ! (( cmdline = config_get_item( ctx->config, "cmd" ) )))
 		return -1;
 
-	cmd = strdup( cmdline );
+	cmd = alloca ( PATH_MAX );
 	exec_config_t *cf = (exec_config_t *) ctx->data;
 
-	if( ! process_command( cmd, exe, vec )) {
-		free(cmd);
+	x_printf(ctx,"calling process_command(%s)\n",cmdline);
+	if( ! process_command( ctx, cmd, PATH_MAX, cmdline, exe, vec )) {
+		x_printf(ctx,"process_command() failed\n");
 		return -1;
 	}
 	
 	int fd_in[2] = { -1,-1 };
 	int fd_out[2] = { -1,-1 };
 
+	x_printf(ctx,"Executing %s\n",cmd);
+
 	if( use_tty ) {
 		fd_in[FD_READ] = fd_out[FD_WRITE] = open("/dev/ptmx", O_RDWR | O_NOCTTY | O_NONBLOCK );
 
 		if( fd_in[FD_READ] < 0 ) {
 			logger(ctx->owner, ctx, "Failed to open a pty to launch %s\n", cmd);
-			free(cmd);
 
 			FATAL("Failed to open pty - terminating\n");
 			return 1;
@@ -213,7 +262,6 @@ int exec_launch( context_t *ctx, int use_tty )
 		if( fd_in[FD_WRITE] < 0 ) {
 			logger(ctx->owner, ctx, "Failed to open pty-slave for %s\n",cmd);
 			close( fd_in[FD_READ] );
-			free(cmd);
 
 			FATAL("Failed to open pty-slave\n");
 			return 1;
@@ -227,7 +275,6 @@ int exec_launch( context_t *ctx, int use_tty )
 				if( fd_out[i] >= 0 )
 					close( fd_out[i] );
 			}
-			free(cmd);
 			return 1;
 		}
 	}
@@ -243,6 +290,21 @@ int exec_launch( context_t *ctx, int use_tty )
 		cf->fd_out = fd_out[FD_WRITE];
 
 		if( use_tty ) {
+			// Check for local echo
+			struct termios tt;
+
+			if( cf->tty_flags ) {
+				tcgetattr( cf->fd_in, &tt );
+
+				if( cf->tty_flags & TTY_NOECHO )
+					tt.c_lflag &= ~(unsigned int)(ECHO);
+
+				if( cf->tty_flags & TTY_RAW )
+					cfmakeraw(&tt);
+
+				tcsetattr( cf->fd_in, TCSANOW, & tt );
+			}
+
 			event_add( ctx, cf->fd_in, EH_READ | EH_EXCEPTION );
 		} else {
 			event_add( ctx, cf->fd_in, EH_READ );
@@ -250,7 +312,6 @@ int exec_launch( context_t *ctx, int use_tty )
 		}
 
 		x_printf(ctx,"New child process (pid = %d, fd = %d/%d) %s\n",pid,cf->fd_in,cf->fd_out, cmd );
-		free( cmd );
 	} else {
 		// Child.  convert to stdin/stdout
 		if( dup2( fd_out[FD_READ], 0 ) < 0 )
@@ -290,29 +351,33 @@ ssize_t exec_handler(context_t *ctx, event_t event, driver_data_t *event_data )
 	else if( event_data->type == TYPE_DATA )
 		data = & event_data->event_data;
 
+	//x_printf(ctx, "<%s> Event = \"%s\" (%d)\n", ctx->name, event_map[event], event);
+
 	switch( event ) {
 		case EVENT_INIT:
-			{
-				event_add( ctx, 0, EH_WANT_TICK );
-				event_add( ctx, SIGQUIT, EH_SIGNAL );
-				event_add( ctx, SIGCHLD, EH_SIGNAL );
-				event_add( ctx, SIGPIPE, EH_SIGNAL );
 
-				if( config_istrue( ctx->config, "tty" ) )
-					cf->flags |= EXEC_TTY_REQUIRED;
-				cf->tty = cf->flags & EXEC_TTY_REQUIRED;
+			event_add( ctx, 1000, EH_WANT_TICK );
+			event_add( ctx, SIGQUIT, EH_SIGNAL );
+			event_add( ctx, SIGCHLD, EH_SIGNAL );
+			event_add( ctx, SIGPIPE, EH_SIGNAL );
 
-				if( ! exec_launch( ctx, cf->tty ) ) {
-					cf->state = EXEC_STATE_RUNNING;
-					// Let the parent know the process has started/restarted
-					driver_data_t notification = { TYPE_CHILD, ctx, {} };
-					notification.event_child.action = CHILD_EVENT;
-					notification.event_child.status = 0;
-					emit(ctx->owner, EVENT_RESTART, &notification);
-				} else {
-					cf->state = EXEC_STATE_ERROR;
-					return context_terminate(ctx);
-				}
+			if( config_istrue( ctx->config, "tty" ) || config_istrue( ctx->config, "pty" ) )
+				cf->flags |= EXEC_TTY_REQUIRED;
+
+			cf->tty_flags = ( config_istrue( ctx->config, "echo" ) ? TTY_ECHO : TTY_NOECHO ) |
+					( config_istrue( ctx->config, "raw" ) ? TTY_RAW : 0 );
+
+			cf->tty = cf->flags & EXEC_TTY_REQUIRED;
+
+		case EVENT_START:
+
+			if( ! exec_launch( ctx, cf->tty ) ) {
+				cf->state = EXEC_STATE_RUNNING;
+				// Let the parent know the process has started/restarted
+				context_owner_notify( ctx, CHILD_EVENT, 0 );
+			} else {
+				cf->state = EXEC_STATE_ERROR;
+				return context_terminate(ctx);
 			}
 			break;
 
@@ -450,7 +515,7 @@ ssize_t exec_handler(context_t *ctx, event_t event, driver_data_t *event_data )
 				int rc = event_waitchld(&status, cf->pid);
 
 				if( rc == cf->pid ) {
-					x_printf(ctx, "PID matches.  cleaning up\n");
+					x_printf(ctx, "PID matches - status = %d. cleaning up\n", WEXITSTATUS(status));
 					// disable further events being recognized for this process
 					cf->pid = -1;
 					if( ! cf->tty ) {
@@ -487,7 +552,7 @@ ssize_t exec_handler(context_t *ctx, event_t event, driver_data_t *event_data )
 				}
 
 				if( (cf->state == EXEC_STATE_IDLE) && (( now - cf->pending_action_timestamp ) > cf->restart_delay ))
-					emit( ctx, EVENT_INIT, DRIVER_DATA_NONE );
+					emit( ctx, EVENT_START, DRIVER_DATA_NONE );
 			}
 			break;
 

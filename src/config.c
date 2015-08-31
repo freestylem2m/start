@@ -104,7 +104,7 @@ int config_get_intval(const config_t *section, const char *item)
 	return -1;
 }
 
-unsigned int config_get_timeval(const config_t *section, const char *item)
+time_t config_get_timeval(const config_t *section, const char *item)
 {
 	char     *i = (char *) config_get_item(section, item);
 

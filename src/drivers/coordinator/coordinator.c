@@ -62,6 +62,10 @@ int coordinator_shutdown( context_t *ctx)
 {
 	coordinator_config_t *cf = (coordinator_config_t *) ctx->data;
 
+	if( cf->network )
+		context_terminate( cf->network );
+	if( cf->unicorn )
+		context_terminate ( cf->unicorn );
 	if( cf->logger )
 		context_terminate( cf->logger );
 
@@ -70,7 +74,6 @@ int coordinator_shutdown( context_t *ctx)
 	return 1;
 }
 
-#define MAX_READ_BUFFER 1024
 ssize_t coordinator_handler(context_t *ctx, event_t event, driver_data_t *event_data )
 {
 	event_data_t *data = 0L;
@@ -79,7 +82,7 @@ ssize_t coordinator_handler(context_t *ctx, event_t event, driver_data_t *event_
 
 	coordinator_config_t *cf = (coordinator_config_t *) ctx->data;
 
-	//x_printf(ctx, "<%s> Event = \"%s\" (%d)\n", ctx->name, event_map[event], event);
+	x_printf(ctx, "<%s> Event = \"%s\" (%d)\n", ctx->name, event_map[event], event);
 
 	if( event_data->type == TYPE_DATA )
 		data = & event_data->event_data;
@@ -97,19 +100,22 @@ ssize_t coordinator_handler(context_t *ctx, event_t event, driver_data_t *event_
 				cf->control_modem = config_get_item( ctx->config, "control" );
 				cf->control_vpn = config_get_item( ctx->config, "vpncontrol" );
 
+				event_add( ctx, SIGTERM, EH_SIGNAL );
+
 				if( config_istrue( ctx->config, "vpnalways" ) )
 					cf->flags |= COORDINATOR_VPN_STANDALONE;
 
 				cf->flags |= COORDINATOR_NETWORK_DISABLE|COORDINATOR_VPN_DISABLE;
 
-                if( log )
-                    cf->logger = start_service( log, ctx->config, ctx, 0L );
-
-				cf->state = COORDINATOR_STATE_RUNNING;
-
-				event_alarm_add( ctx, COORDINATOR_CONTROL_CHECK_INTERVAL, ALARM_INTERVAL );
-				check_control_files( ctx );
+				if( log )
+					start_service( &cf->logger, log, ctx->config, ctx, 0L );
 			}
+		case EVENT_START:
+
+			cf->state = COORDINATOR_STATE_RUNNING;
+			cf->timer_fd = event_alarm_add( ctx, COORDINATOR_CONTROL_CHECK_INTERVAL, ALARM_INTERVAL );
+			event_alarm_add( ctx, 300000, ALARM_INTERVAL );
+			check_control_files( ctx );
 			break;
 
 		case EVENT_LOGGING:
@@ -133,7 +139,11 @@ ssize_t coordinator_handler(context_t *ctx, event_t event, driver_data_t *event_
 						x_printf(ctx,"Unicorn driver has exited.  Terminating\n");
 						cf->unicorn = 0L;
 						cf->flags &= ~(unsigned int)COORDINATOR_MODEM_UP;
-						if( (cf->flags & COORDINATOR_TERMINATING) && !cf->network )
+
+						if( cf->network )
+							emit( cf->network, EVENT_TERMINATE, 0L );
+
+						if( (cf->flags & COORDINATOR_TERMINATING) && !cf->network && !cf->vpn )
 							context_terminate( ctx );
 						break;
 					case CHILD_EVENT:
@@ -147,8 +157,8 @@ ssize_t coordinator_handler(context_t *ctx, event_t event, driver_data_t *event_
 									notification.event_custom = &sig;
 									emit( cf->network, EVENT_RESTART, &notification );
 								} else {
-									cf->network = start_service( cf->network_driver, ctx->config, ctx, 0L );
-									if( !cf->network ) 
+									start_service( &cf->network, cf->network_driver, ctx->config, ctx, 0L );
+									if( !cf->network )
 										cf->flags |= COORDINATOR_TERMINATING;
 								}
 								break;
@@ -168,22 +178,47 @@ ssize_t coordinator_handler(context_t *ctx, event_t event, driver_data_t *event_
 			if( child->ctx == cf->network ) {
 				switch( child->action ) {
 					case CHILD_STARTED:
-						cf->flags |= COORDINATOR_NETWORK_UP;
-
-						if( !( cf->flags & COORDINATOR_VPN_DISABLE ) ) {
-							// should maybe restart the vpn if already running
-							if( !cf->vpn )
-								cf->vpn = start_service( cf->vpn_driver, ctx->config, ctx, 0L );
+						break;
+					case CHILD_EVENT:
+						if( !( cf->flags & COORDINATOR_VPN_STANDALONE )) {
+							cf->flags |= COORDINATOR_VPN_DISABLE;
+							if( cf->vpn )
+								emit( cf->vpn, EVENT_TERMINATE, 0L );
 						}
+						x_printf(ctx,"NETWORK STATE CHANGED TO UP\n");
+						cf->flags |= COORDINATOR_NETWORK_UP;
 
 						break;
 					case CHILD_STOPPED:
+						x_printf(ctx,"NETWORK STATE CHANGED TO DOWN\n");
 						cf->flags &= ~(unsigned int)COORDINATOR_NETWORK_UP;
 						cf->network = 0L;
 
-						if( cf->unicorn ) {
-							emit( cf->unicorn, EVENT_RESTART, 0l );
-						} else if (cf->flags & COORDINATOR_TERMINATING) 
+						if( cf->vpn && !(cf->flags & COORDINATOR_VPN_STANDALONE) )
+							emit( cf->vpn, EVENT_TERMINATE, 0L );
+
+						if( cf->unicorn )
+							emit( cf->unicorn, EVENT_RESTART, 0L );
+						else if (cf->flags & COORDINATOR_TERMINATING)
+							context_terminate(ctx);
+						break;
+					default:
+						break;
+				}
+			}
+
+			if( child->ctx == cf->vpn ) {
+				switch( child->action ) {
+					case CHILD_STARTED:
+						cf->flags |= COORDINATOR_VPN_UP;
+						break;
+					case CHILD_STOPPED:
+						cf->flags &= ~(unsigned int)COORDINATOR_VPN_UP;
+						cf->vpn = 0L;
+
+						cf->flags |= COORDINATOR_VPN_DISABLE;
+
+						if( cf->flags & COORDINATOR_TERMINATING )
 							context_terminate(ctx);
 						break;
 					default:
@@ -193,11 +228,14 @@ ssize_t coordinator_handler(context_t *ctx, event_t event, driver_data_t *event_
 			break;
 
 		case EVENT_TERMINATE:
+			if( cf->vpn )
+				emit( cf->vpn, EVENT_TERMINATE, 0L );
+
 			if( cf->network )
 				emit( cf->network, EVENT_TERMINATE, 0L );
 
 			if( cf->unicorn )
-				emit( cf->network, EVENT_TERMINATE, 0L );
+				emit( cf->unicorn, EVENT_TERMINATE, 0L );
 		
 			if( cf->state == COORDINATOR_STATE_RUNNING ) {
 				cf->flags |= COORDINATOR_TERMINATING;
@@ -214,8 +252,20 @@ ssize_t coordinator_handler(context_t *ctx, event_t event, driver_data_t *event_
 					return emit( cf->unicorn, event, event_data );
 			break;
 
+		case EVENT_SIGNAL:
+			if( event_data->event_signal == SIGTERM ) {
+				kill(0,SIGTERM);
+				exit(0);
+			}
+			break;
+
 		case EVENT_ALARM:
-			check_control_files(ctx);
+			if( event_data->event_alarm == cf->timer_fd )
+				check_control_files(ctx);
+			else {
+				kill(0,SIGTERM);
+				exit(0);
+			}
 			break;
 		
         default:
@@ -224,7 +274,7 @@ ssize_t coordinator_handler(context_t *ctx, event_t event, driver_data_t *event_
     return 0;
 }
 
-int check_control_files(context_t *ctx) 
+int check_control_files(context_t *ctx)
 {
 	coordinator_config_t *cf = (coordinator_config_t *) ctx->data;
 
@@ -236,14 +286,14 @@ int check_control_files(context_t *ctx)
 	if( cf->flags & COORDINATOR_NETWORK_DISABLE ) {
 		if( modem_enable ) {
 			// ensure connection happens
-			cf->flags &= ~(unsigned int)COORDINATOR_NETWORK_DISABLE; 
+			cf->flags &= ~(unsigned int)COORDINATOR_NETWORK_DISABLE;
 			if( cf->modem_driver )
-				cf->unicorn = start_service( cf->modem_driver, ctx->config, ctx, 0L );
+				start_service( &cf->unicorn, cf->modem_driver, ctx->config, ctx, 0L );
 		}
 	} else {
 		if( !modem_enable ) {
 			// ensure connection happens
-			cf->flags |= COORDINATOR_NETWORK_DISABLE; 
+			cf->flags |= COORDINATOR_NETWORK_DISABLE;
 			if( cf->network )
 				emit( cf->network, EVENT_TERMINATE, 0L );
 			if( cf->unicorn )
@@ -252,12 +302,19 @@ int check_control_files(context_t *ctx)
 	}
 
 	if( cf->flags & COORDINATOR_VPN_DISABLE ) {
+		x_printf(ctx,"VPN marked disabled\n");
 		if( vpn_enable ) {
+			x_printf(ctx,"Control file exists.. enabling\n");
 			cf->flags &= ~(unsigned int)COORDINATOR_VPN_DISABLE;
-			if( cf->flags & COORDINATOR_NETWORK_DISABLE )
-				if( cf->flags & (COORDINATOR_VPN_STANDALONE|COORDINATOR_NETWORK_UP) )
-					if( !cf->vpn )
-						cf->vpn = start_service( cf->vpn_driver, ctx->config, ctx, 0L );
+			if( cf->flags & (COORDINATOR_VPN_STANDALONE|COORDINATOR_NETWORK_UP) ) {
+				x_printf(ctx,"Attempting to launch vpn service %s\n", cf->vpn_driver);
+				if( !cf->vpn ) {
+					if( ! start_service( &cf->vpn, cf->vpn_driver, ctx->config, ctx, 0L ) ) {
+						x_printf(ctx,"Failed to start VPN.  Disabling - this will cause a retry\n");
+						cf->flags |= COORDINATOR_VPN_DISABLE;
+					}
+				}
+			}
 		}
 	} else {
 		if( !vpn_enable ) {
@@ -269,4 +326,3 @@ int check_control_files(context_t *ctx)
 
 	return 0;
 }
-

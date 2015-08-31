@@ -29,6 +29,8 @@
 #ifndef __CONFIG_H__
 #define __CONFIG_H__
 
+#include <time.h>
+
 #define LINE_MAX 1024
 
 typedef struct config_entry_s {
@@ -60,7 +62,7 @@ extern const char **config_get_itemlist( const config_t *section, const char *it
 
 extern int config_get_intval(const config_t *section, const char *item);
 extern unsigned int config_get_binval(const config_t *section, const char *item);
-extern unsigned int config_get_timeval(const config_t *section, const char *item);
+extern time_t config_get_timeval(const config_t *section, const char *item);
 extern int config_istrue( const config_t *section, const char *item );
 
 #endif

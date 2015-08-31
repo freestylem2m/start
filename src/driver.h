@@ -43,7 +43,7 @@ extern driver_data_t driver_data_dummy;
 extern const char *get_env( context_t *ctx, const char *name );
 
 extern void context_owner_notify( context_t *ctx, child_status_t state, int status );
-extern context_t *start_driver( const char *driver_name, const char *context_name, const config_t *parent_config, context_t *owner, void *pdata );
+extern context_t *start_driver( context_t **pctx, const char *driver_name, const char *context_name, const config_t *parent_config, context_t *owner, void *pdata );
 extern const driver_t driver_table[];
 extern const driver_t *find_driver(const char *);
 extern context_t *context_create(const char *service_name, const config_t *service_config, const driver_t *driver, const config_t *driver_config);

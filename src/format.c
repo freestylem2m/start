@@ -6,7 +6,7 @@
 *
 * Name:            format.c
 *
-* Description:     
+* Description:
 *
 * Project:         Freestyle Micro Engine
 * Owner:           Freestyle Technology Pty Ltd
