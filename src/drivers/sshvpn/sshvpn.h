@@ -2,6 +2,9 @@
 #ifndef __DRIVER_SSHVPN_H_
 #define __DRIVER_SSHVPN_H_
 
+
+#include <netinet/in.h>
+
 #include "driver.h"
 
 #define FD_READ 0
@@ -21,6 +24,8 @@ typedef enum {
 	SSHVPN_TERMINATING = 1,
 	SSHVPN_NETWORK_UP  = 2,
 	SSHVPN_TRANSPORT_UP = 4,
+	SSHVPN_IF_UP = 8,
+	SSHVPN_ROUTE_UP = 16,
 } sshvpn_flags_t;
 
 typedef struct sshvpn_config_t {
@@ -37,6 +42,10 @@ typedef struct sshvpn_config_t {
 	char *resolver_data;
 	ssize_t resolver_data_size;
 
+	int        sock_fd;
+	const char *interface;
+	in_addr_t  interface_addr;
+	const char **route_info;
 	int        timer_fd;
 } sshvpn_config_t;
 

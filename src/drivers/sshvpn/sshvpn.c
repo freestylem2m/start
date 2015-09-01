@@ -36,8 +36,13 @@
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <sys/stat.h>
+#include <sys/ioctl.h>
 #include <ctype.h>
 #include <fcntl.h>
+#include <net/if.h>
+#include <net/route.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
 
 #include "netmanage.h"
 #include "driver.h"
@@ -71,6 +76,9 @@ int sshvpn_shutdown( context_t *ctx)
 
 	if( cf->resolver_file )
 		sshvpn_manage_resolver(ctx, RESOLVER_RESTORE);
+
+	if( cf->sock_fd >= 0 )
+		close( cf->sock_fd );
 
 	sshvpn_manage_resolver(ctx, RESOLVER_RELEASE);
 
@@ -146,6 +154,116 @@ int sshvpn_manage_resolver(context_t *ctx, sshvpn_resolver_action_t action)
 	return 0;
 }
 
+int sshvpn_find_network_interface( context_t *ctx )
+{
+#define SSHVPN_IF_BUFFER 1024
+	sshvpn_config_t *cf = (sshvpn_config_t *) ctx->data;
+
+	char *buf = alloca(SSHVPN_IF_BUFFER);
+	struct ifconf ifc;
+	struct ifreq  ifr;
+	struct ifreq *pifr;
+	int           nInterfaces;
+	int           i;
+
+	ifc.ifc_len = SSHVPN_IF_BUFFER;
+	ifc.ifc_buf = buf;
+
+	if( cf->sock_fd < 0 )
+		return 0;
+
+	if(ioctl(cf->sock_fd, SIOCGIFCONF, &ifc) < 0)
+		return 0;
+
+	pifr         = ifc.ifc_req;
+	nInterfaces = ifc.ifc_len / (int) sizeof(struct ifreq);
+	for(i = 0; i < nInterfaces; i++)
+	{
+		struct ifreq *item = &pifr[i];
+		if( !strcasecmp( item->ifr_name, cf->interface ) ) {
+
+			memset( &ifr, 0, sizeof( ifr ));
+			strncpy( ifr.ifr_ifrn.ifrn_name, cf->interface, IFNAMSIZ );
+
+			if( ioctl( cf->sock_fd, SIOCGIFDSTADDR, &ifr ) < 0 )
+				d_printf("SIOCGIFDSTADDR failz %s\n",strerror(errno));
+
+			cf->interface_addr = ((struct sockaddr_in *)&(ifr.ifr_ifru.ifru_dstaddr))->sin_addr.s_addr;
+			d_printf("Interface address = %08x\n", cf->interface_addr);
+			return 1;
+		}
+	}
+
+	return 0;
+}
+
+in_addr_t sshvpn_route_to_host(const char *rt)
+{
+	struct in_addr in;
+
+	char *prt = alloca(strlen(rt)+1);
+	strcpy(prt,rt);
+
+	char *mask = strchr(prt, '/' );
+	if( mask )
+		*mask = 0;
+
+	if( inet_aton( prt, &in ) )
+		return in.s_addr;
+	
+	return 0;
+}
+
+in_addr_t sshvpn_route_to_mask(const char *rt)
+{
+	char *mask;
+	int prefix = 24;
+
+	if( (mask = strchr(rt,'/')))
+		prefix = atoi(++mask);
+
+	return htonl(0xFFFFFFFF << ( 32 - prefix ));
+}
+
+int sshvpn_manage_routes(context_t *ctx)
+{
+	sshvpn_config_t *cf = (sshvpn_config_t *) ctx->data;
+
+	const char **routes = cf->route_info;
+
+	struct rtentry  rm;
+
+	while( *routes ) {
+		memset(&rm, 0, sizeof(rm));
+
+		((struct sockaddr_in *)&rm.rt_gateway)->sin_family = AF_INET;
+		((struct sockaddr_in *)&rm.rt_gateway)->sin_addr.s_addr = cf->interface_addr;
+		((struct sockaddr_in *)&rm.rt_gateway)->sin_port = 0;
+		((struct sockaddr_in *)&rm.rt_dst)->sin_family = AF_INET;
+		((struct sockaddr_in *)&rm.rt_dst)->sin_addr.s_addr = sshvpn_route_to_host(*routes);
+		((struct sockaddr_in *)&rm.rt_dst)->sin_port = 0;
+		((struct sockaddr_in *)&rm.rt_genmask)->sin_family = AF_INET;
+		((struct sockaddr_in *)&rm.rt_genmask)->sin_addr.s_addr = sshvpn_route_to_mask(*routes);
+		((struct sockaddr_in *)&rm.rt_genmask)->sin_port = 0;
+
+		rm.rt_dev = (char *) cf->interface;
+		rm.rt_flags = RTF_UP | RTF_GATEWAY | RTF_STATIC;
+
+		d_printf("route gateway = %08x\n", ((struct sockaddr_in *)&rm.rt_gateway)->sin_addr.s_addr);
+		d_printf("route address = %08x\n", ((struct sockaddr_in *)&rm.rt_dst)->sin_addr.s_addr);
+		d_printf("route mask = %08x\n", ((struct sockaddr_in *)&rm.rt_genmask)->sin_addr.s_addr);
+		d_printf("route interface = %s\n", rm.rt_dev);
+
+		if (ioctl(cf->sock_fd, SIOCADDRT, &rm) < 0) {
+			x_printf(ctx,"SIOCADDRT failed - %s\n",strerror(errno));
+			return 0;
+		}
+
+		routes ++;
+	}
+	return 1;
+}
+
 ssize_t sshvpn_handler(context_t *ctx, event_t event, driver_data_t *event_data )
 {
 	event_data_t *data = 0L;
@@ -166,10 +284,16 @@ ssize_t sshvpn_handler(context_t *ctx, event_t event, driver_data_t *event_data 
 			cf->transport_driver = config_get_item( ctx->config, "transportdriver" );
 			cf->network_driver = config_get_item( ctx->config, "networkdriver" );
 			cf->resolver_file = config_get_item( ctx->config, "resolver" );
+			cf->interface = config_get_item( ctx->config, "interface" );
+			cf->route_info = config_get_itemlist( ctx->config, "routes" );
 
 			x_printf(ctx, "transport driver = %s\n",cf->transport_driver );
 			x_printf(ctx, "network driver = %s\n",cf->network_driver );
 
+			x_printf(ctx,"calling event 1000 EH_WANT_TICK\n");
+			event_add( ctx, 1000, EH_WANT_TICK );
+
+			cf->sock_fd = socket( AF_INET, SOCK_DGRAM, 0 );
 			cf->state = SSHVPN_STATE_RUNNING;
 
 		case EVENT_START:
@@ -301,7 +425,17 @@ ssize_t sshvpn_handler(context_t *ctx, event_t event, driver_data_t *event_data 
 			}
 			break;
 
+		case EVENT_TICK:
 		case EVENT_ALARM:
+
+			if( !(cf->flags & SSHVPN_IF_UP) ) {
+				x_printf(ctx,"checking if vpn interface is up\n");
+				if( sshvpn_find_network_interface( ctx ) ) {
+					x_printf(ctx,"Found it !!!!\n");
+					if( sshvpn_manage_routes(ctx) )
+						cf->flags |= SSHVPN_IF_UP;
+				}
+			}
 			break;
 
 		default:

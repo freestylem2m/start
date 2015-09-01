@@ -251,9 +251,12 @@ int create_event_set( fd_set *readfds, fd_set *writefds, fd_set *exceptfds, int 
 	FD_ZERO( writefds );
 	FD_ZERO( exceptfds );
 
+#if 0
 	d_printf("creating event set [");
+#endif
 	for( i = 0; i < MAX_EVENT_REQUESTS; i++ ) {
 		if( event_table[i].flags ) {
+#if 0
 #ifndef NDEBUG
 			printf(" %d(%s):%ld",i,event_table[i].ctx->name, event_table[i].fd);
 			if( event_table[i].flags & EH_READ )
@@ -268,6 +271,7 @@ int create_event_set( fd_set *readfds, fd_set *writefds, fd_set *exceptfds, int 
 				printf("T");
 			if( event_table[i].flags & EH_SIGNAL )
 				printf("s");
+#endif
 #endif
 			if( event_table[i].flags & EH_SPECIAL ) {
 
@@ -298,8 +302,10 @@ int create_event_set( fd_set *readfds, fd_set *writefds, fd_set *exceptfds, int 
 #endif
 		}
 	}
+#if 0
 #ifndef NDEBUG
 	printf("]\n");
+#endif
 #endif
 
 	return count;
@@ -395,17 +401,17 @@ int handle_event_set(fd_set * readfds, fd_set * writefds, fd_set * exceptfds)
 			data.event_request.flags = event_table[i].flags;
 
 			if ((event_table[i].flags & EH_EXCEPTION) && FD_ISSET((unsigned int)event_table[i].fd, exceptfds)) {
-				d_printf("Exception event for %s\n",event_table[i].ctx->name);
+				//d_printf("Exception event for %s\n",event_table[i].ctx->name);
 				event_table[i].ctx->driver->emit(event_table[i].ctx, EVENT_EXCEPTION, &data);
 			}
 
 			if ((event_table[i].flags & EH_WRITE) && FD_ISSET((unsigned int)event_table[i].fd, writefds)) {
-				d_printf("Write event for %s\n",event_table[i].ctx->name);
+				//d_printf("Write event for %s\n",event_table[i].ctx->name);
 				event_table[i].ctx->driver->emit(event_table[i].ctx, EVENT_WRITE, &data);
 			}
 
 			if ((event_table[i].flags & EH_READ) && FD_ISSET((unsigned int)event_table[i].fd, readfds)) {
-				d_printf("Read event for %s\n",event_table[i].ctx->name);
+				//d_printf("Read event for %s\n",event_table[i].ctx->name);
 				event_table[i].ctx->driver->emit(event_table[i].ctx, EVENT_READ, &data);
 			}
 
@@ -420,7 +426,7 @@ int handle_event_set(fd_set * readfds, fd_set * writefds, fd_set * exceptfds)
 
 				// If the event handler changes the alarm in any way, the 'fired' flag is cleared
 				if (alarm_table[event_table[i].fd].flags & ALARM_FIRED) {
-					d_printf("ALARM event for %s\n",event_table[i].ctx->name);
+					//d_printf("ALARM event for %s\n",event_table[i].ctx->name);
 					handle_event_alarm(&event_table[i]);
 				}
 			}
@@ -490,6 +496,7 @@ int event_loop( long timeout )
 
 	struct timeval tm = { timeout / 1000, (timeout % 1000) * 1000 };
 
+#if 0
 #ifndef NDEBUG
 	int i = 0;
 	printf("READ: ");
@@ -515,13 +522,14 @@ int event_loop( long timeout )
 		}
 	printf("\n");
 #endif
+#endif
 
 #ifndef NDEBUG
-	printf("calling select...");fflush(stdout);
+	//printf("calling select...");fflush(stdout);
 #endif
 	int rc = select( max_fd, &fds_read, &fds_write, &fds_exception, &tm );
 #ifndef NDEBUG
-	printf("done\n");fflush(stdout);
+	//printf("done\n");fflush(stdout);
 #endif
 #endif
 
@@ -541,15 +549,15 @@ int event_loop( long timeout )
 	}
 
 	if( event_signals.event_signal_pending_count ) {
-		d_printf("Calling handle_pending_signals()\n");
+		//d_printf("Calling handle_pending_signals()\n");
 		handle_pending_signals();
 	}
 
-	d_printf("Calling handle_event_set()\n");
+	//d_printf("Calling handle_event_set()\n");
 	rc = handle_event_set( &fds_read, &fds_write, &fds_exception );
 
 	if( !rc ) {
-		d_printf("Calling handle_timer_events()\n");
+		//d_printf("Calling handle_timer_events()\n");
 		handle_timer_events();
 	}
 

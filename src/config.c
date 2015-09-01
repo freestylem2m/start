@@ -39,14 +39,12 @@
 
 static config_t *config;
 
-#define LINE_MAX 1024
-
 const config_t *config_get_section( const char *section )
 {
 	config_t *p = config;
 	int match = -1;
 
-	while( p && ((match = strncasecmp( p->section, section, LINE_MAX ))) < 0 )
+	while( p && ((match = strncasecmp( p->section, section, CONFIG_LINE_MAX ))) < 0 )
 		p = p->next;
 
 	return match?0L:p;
@@ -57,7 +55,7 @@ const config_entry_t *config_get_entry( const config_t *section, const char *ite
 	config_entry_t *e = section->config;
 	int match = -1;
 
-	while( e && ((match = strncasecmp( e->item, item, LINE_MAX ))) < 0 )
+	while( e && ((match = strncasecmp( e->item, item, CONFIG_LINE_MAX ))) < 0 )
 		e = e->next;
 
 	return match?0L:e;
@@ -256,7 +254,7 @@ config_t *add_config_section( const char *section )
 	config_t **p = &config;
 	int match = -1;
 
-	while( *p && ((match = strncasecmp( (*p)->section, section, LINE_MAX ))) < 0 )
+	while( *p && ((match = strncasecmp( (*p)->section, section, CONFIG_LINE_MAX ))) < 0 )
 		p = &(*p)->next;
 
 	if( match ) {
@@ -274,7 +272,7 @@ config_entry_t *add_config_entry( config_t *section, const char *item, const cha
 	config_entry_t **e = &section->config;
 	int match = -1;
 
-	while( (*e) && ((match = strncasecmp( (*e)->item, item, LINE_MAX ))) < 0 )
+	while( (*e) && ((match = strncasecmp( (*e)->item, item, CONFIG_LINE_MAX ))) < 0 )
 		e = &(*e)->next;
 
 	if( match ) {
@@ -314,7 +312,7 @@ void config_dump()
 
 int config_read( FILE *fd )
 {
-	char buffer[LINE_MAX];
+	char buffer[CONFIG_LINE_MAX];
 	char *section = 0L;
 	int linenr = 0;
 	char *bp;

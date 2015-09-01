@@ -31,7 +31,7 @@
 
 #include <time.h>
 
-#define LINE_MAX 1024
+#define CONFIG_LINE_MAX 1024
 
 typedef struct config_entry_s {
 	const char		      *item;
