@@ -44,6 +44,8 @@ typedef struct exec_config_t {
 	time_t last_tick;
 	time_t pending_action_timestamp;
 	u_ringbuf_t output;
+
+	const char *pid_file;
 } exec_config_t;
 
 extern int exec_init(context_t *);

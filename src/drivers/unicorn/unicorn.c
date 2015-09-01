@@ -167,6 +167,7 @@ ssize_t process_unicorn_data( context_t *ctx, size_t ready )
 {
 	unicorn_config_t *cf = ctx->data;
 
+	x_printf(ctx, "Entering process_unicorn_data()\n");
 	if( ready >= cf->msgHdr.length ) {
 		char *data_buffer = alloca( cf->msgHdr.length );
 		u_ringbuf_read( &cf->input, data_buffer, cf->msgHdr.length );
@@ -178,12 +179,15 @@ ssize_t process_unicorn_data( context_t *ctx, size_t ready )
 
 		cf->flags &= ~(unsigned int)UNICORN_EXPECTING_DATA;
 	}
+	x_printf(ctx, "Leaving process_unicorn_data()\n");
 	return 0;
 }
 
 ssize_t process_unicorn_packet( context_t *ctx )
 {
 	unicorn_config_t *cf = ctx->data;
+
+	x_printf(ctx, "Entering process_unicorn_packet()\n");
 
 	size_t ready = u_ringbuf_ready( &cf->input );
 
@@ -199,14 +203,17 @@ ssize_t process_unicorn_packet( context_t *ctx )
 				x_printf(ctx,"MAGIC NUMBER FAIL... tossing the baby out with the bathwater..\n");
 				u_ringbuf_init( &cf->input );
 				cf->flags &= ~(unsigned int)UNICORN_EXPECTING_DATA;
+				x_printf(ctx, "Leaving process_unicorn_packet()\n");
 				return -1;
 			}
 
 			cf->last_message = rel_time(0L);
+			x_printf(ctx, "Leaving process_unicorn_packet() via process_unicorn_header()\n");
 			return process_unicorn_header( ctx );
 		}
 	}
 
+	x_printf(ctx, "Leaving process_unicorn_packet()\n");
 	// return because there is nothing useful in the buffer..
 	return -1;
 }
@@ -226,8 +233,11 @@ ssize_t unicorn_handler(context_t *ctx, event_t event, driver_data_t *event_data
 	switch (event) {
 	case EVENT_INIT:
 		{
+			x_printf(ctx,"calling event add SIGQUIT\n");
 			event_add( ctx, SIGQUIT, EH_SIGNAL );
+			x_printf(ctx,"calling event add SIGTERM\n");
 			event_add( ctx, SIGTERM, EH_SIGNAL );
+			x_printf(ctx,"calling event 1000 EH_WANT_TICK\n");
 			event_add( ctx, 1000, EH_WANT_TICK );
 
 			const char *endpoint = config_get_item( ctx->config, "endpoint" );

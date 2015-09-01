@@ -127,9 +127,10 @@ typedef struct unicorn_config_t {
 	context_t *modem;
 	u_ringbuf_t input;
 	time_t last_message;
-	//time_t last_tick;
 	time_t pending_action_timeout;
 	time_t retry_time;
+
+	const char *pid_file;
 
 	frmHdr_t  msgHdr;
 	size_t   data_length;

@@ -94,14 +94,16 @@ unsigned int config_get_binval(const config_t *section, const char *item)
 	return (unsigned int) val;
 }
 
-int config_get_intval(const config_t *section, const char *item)
+int config_get_intval(const config_t *section, const char *item, int *val)
 {
 	char     *i = (char *) config_get_item(section, item);
 
-	if( i )
-		return (int) strtol(i, 0L, 10);
+	if( i ) {
+		*val = (int) strtol(i, 0L, 10);
+		return 1;
+	}
 
-	return -1;
+	return 0;
 }
 
 time_t config_get_timeval(const config_t *section, const char *item)
@@ -120,7 +122,7 @@ time_t config_get_timeval(const config_t *section, const char *item)
 		i++;
 	}
 
-	return (unsigned int) val;
+	return (time_t) val;
 }
 
 int config_istrue(const config_t * section, const char *item)
@@ -293,6 +295,7 @@ config_entry_t *add_config_entry( config_t *section, const char *item, const cha
 	return (*e);
 }
 
+#if 0
 void config_dump()
 {
 	d_printf("+++ Configuration Dump +++\n");
@@ -307,6 +310,7 @@ void config_dump()
 		p = p->next;
 	}
 }
+#endif
 
 int config_read( FILE *fd )
 {
@@ -368,9 +372,9 @@ int config_read_file( const char *file)
 	} else {
 		ret = -1;
 	}
-
-	//config_dump();
-
+#if 0
+	config_dump();
+#endif
 	return ret;
 }
 

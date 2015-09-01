@@ -117,7 +117,6 @@ context_t *start_driver( context_t **pctx, const char *driver_name, const char *
 				driver_data_t notification = { TYPE_CUSTOM, owner, {} };
 				notification.event_custom = pdata;
 				ctx->driver->emit(ctx, EVENT_INIT, &notification);
-				printf("driver %s state = %d\n",ctx->name, ctx->state);
 
 				if( ctx->state == CTX_UNUSED ) {
 					d_printf("Driver %s failed to start, cleaning context pointer\n", ctx->name);
@@ -175,9 +174,6 @@ context_t *context_create(const char *service_name, const config_t *service_conf
 	if( ! ptr )
 		return 0L;
 	
-#ifndef NDEBUG
-	int debug_level = config_get_intval(service_config, "debug");
-#endif
 
 	strncpy( ptr->name, service_name, MAX_SERVICE_NAME );
 	ptr->config = service_config;
@@ -185,7 +181,7 @@ context_t *context_create(const char *service_name, const config_t *service_conf
 	ptr->driver_config = driver_config;
 	ptr->state = CTX_STARTING;
 #ifndef NDEBUG
-	ptr->debug = debug_level;
+	config_get_intval(service_config, "debug", &(ptr->debug));
 #endif
 
 	return ptr;
@@ -205,9 +201,15 @@ void context_owner_notify( context_t *ctx, child_status_t state, int status )
 int context_terminate( context_t *ctx )
 {
 	int i;
+
+	x_printf(ctx,"Context_Terminate called for %s\n",ctx->name);
+
 	for( i = 0; i < MAX_EVENT_REQUESTS; i++ ) {
-		if (event_table[i].ctx == ctx)
+		if (event_table[i].ctx == ctx) {
+			event_table[i].fd = -1;
+			event_table[i].ctx = 0;
 			event_table[i].flags = EH_UNUSED;
+		}
 	}
 
     context_owner_notify( ctx, CHILD_STOPPING, 0 );
@@ -216,6 +218,7 @@ int context_terminate( context_t *ctx )
 		ctx->driver->shutdown( ctx );
 
     context_owner_notify( ctx, CHILD_STOPPED, 0 );
+	ctx->owner = 0;
 	ctx->state = CTX_UNUSED;
 
 	return 0;

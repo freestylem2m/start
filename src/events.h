@@ -46,7 +46,7 @@
 
 // Maximum number of services/drivers loaded
 #define MAX_CONTEXTS 32
-#define MAX_EVENT_REQUESTS 32
+#define MAX_EVENT_REQUESTS 64
 #define MAX_SIGCHLD 32
 #define MAX_SERVICE_NAME 32
 
@@ -269,7 +269,7 @@ extern int          event_subsystem_init(void);
 extern event_request_t *event_find(const context_t * ctx, long fd, const unsigned int flags);
 extern event_request_t *event_set(const context_t * ctx, long fd, unsigned int flags);
 extern event_request_t *event_add(context_t * ctx, const long fd, unsigned int flags);
-extern void         event_delete(context_t * ctx, int fd, event_handler_flags_t flags);
+extern void         event_delete(context_t * ctx, const long fd, event_handler_flags_t flags);
 
 extern int          alarm_add(context_t * ctx, time_t interval, event_alarm_flags_t flags);
 extern int          alarm_delete(context_t * ctx, int key);

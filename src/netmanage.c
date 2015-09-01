@@ -41,9 +41,6 @@ context_t *safe_start_service( context_t **pctx, const char *name, const config_
 {
 	context_t *ctx = 0L;
 
-	if( pctx )
-		printf("pctx = %p\n",*pctx);
-
 	if( find_driver( name ) ) {
 
 		d_printf("Calling start driver %s\n",name);
@@ -78,7 +75,6 @@ context_t *safe_start_service( context_t **pctx, const char *name, const config_
         fprintf(stderr, "Unable to find service %s\n", name);
         exit (0);
 	}
-	printf("Returning ctx = %p\n",ctx);
 	return ctx;
 }
 

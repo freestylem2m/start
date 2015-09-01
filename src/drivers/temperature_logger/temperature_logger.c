@@ -89,6 +89,7 @@ ssize_t temperature_logger_handler(context_t *ctx, event_t event, driver_data_t 
 				cf->format_content[1].key = 't';
 				cf->format_content[1].type = FMT_UINT;
 
+				x_printf(ctx,"calling event ALARM add %ld ALARM_INTERVAL\n",interval);
 				cf->timer_fd = event_alarm_add( ctx, (time_t) interval, ALARM_INTERVAL );
 			}
 			break;

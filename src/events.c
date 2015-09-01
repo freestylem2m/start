@@ -39,6 +39,7 @@
 #include <signal.h>
 #include <sys/wait.h>
 #include <sys/fcntl.h>
+#include <sys/stat.h>
 
 #include "netmanage.h"
 #include "clock.h"
@@ -159,6 +160,7 @@ int event_alarm_add( context_t *ctx, time_t interval, event_alarm_flags_t flags 
 {
 	int alarm_fd = alarm_add( ctx, interval, flags );
 
+	x_printf(ctx,"calling event add %d EH_TIMER (interval = %ld)\n",alarm_fd, interval);
 	if( event_add( ctx, alarm_fd, EH_TIMER ) )
 		return alarm_fd;
 
@@ -186,6 +188,7 @@ event_request_t *event_add( context_t *ctx, const long fd, unsigned int flags )
 {
 	event_request_t *entry = event_find( ctx,  fd, flags );
 
+	d_printf("EVENT ADD called.  fd = %ld, flags = %02x (%c)\n",fd,flags,flags&EH_READ?'r':(flags&EH_WRITE?'w':(flags&EH_SPECIAL?'S':'?')));
 	if( !entry )
 		entry = event_find_free_slot();
 
@@ -217,9 +220,11 @@ event_request_t *event_add( context_t *ctx, const long fd, unsigned int flags )
 	return entry;
 }
 
-void event_delete( context_t *ctx, int fd, event_handler_flags_t flags )
+void event_delete( context_t *ctx, const long fd, event_handler_flags_t flags )
 {
 	event_request_t *entry = event_find( ctx, fd, flags );
+
+	d_printf("EVENT DELETE called.  fd = %ld, flags = %02x (%c)\n",fd,flags,flags&EH_READ?'r':(flags&EH_WRITE?'w':(flags&EH_SPECIAL?'S':'?')));
 
 	if( entry ) {
 		if( flags )
@@ -227,8 +232,11 @@ void event_delete( context_t *ctx, int fd, event_handler_flags_t flags )
 		else
 			entry->flags = EH_UNUSED;
 
-		if( entry->flags == EH_UNUSED )
+		if( entry->flags == EH_UNUSED ) {
+			d_printf("No events for this file descriptor, disabling\n");
 			entry->fd = -1;
+		}
+		d_printf("EVENT remaining - fd = %ld, flags = %02x (%c)\n",entry->fd,entry->flags,entry->flags&EH_READ?'r':(entry->flags&EH_WRITE?'w':(entry->flags&EH_SPECIAL?'S':'?')));
 	}
 }
 
@@ -243,8 +251,24 @@ int create_event_set( fd_set *readfds, fd_set *writefds, fd_set *exceptfds, int 
 	FD_ZERO( writefds );
 	FD_ZERO( exceptfds );
 
+	d_printf("creating event set [");
 	for( i = 0; i < MAX_EVENT_REQUESTS; i++ ) {
 		if( event_table[i].flags ) {
+#ifndef NDEBUG
+			printf(" %d(%s):%ld",i,event_table[i].ctx->name, event_table[i].fd);
+			if( event_table[i].flags & EH_READ )
+				printf("r");
+			if( event_table[i].flags & EH_WRITE )
+				printf("w");
+			if( event_table[i].flags & EH_EXCEPTION )
+				printf("e");
+			if( event_table[i].flags & EH_TIMER )
+				printf("t");
+			if( event_table[i].flags & EH_TIMER_FD )
+				printf("T");
+			if( event_table[i].flags & EH_SIGNAL )
+				printf("s");
+#endif
 			if( event_table[i].flags & EH_SPECIAL ) {
 
 				if( event_table[i].flags & EH_TIMER_FD )
@@ -268,8 +292,15 @@ int create_event_set( fd_set *readfds, fd_set *writefds, fd_set *exceptfds, int 
 				if( event_table[i].fd >= *max )
 					*max = event_table[i].fd+1;
 			}
+		} else {
+#ifndef NDEBUG
+			//printf(" %d:-",i);
+#endif
 		}
 	}
+#ifndef NDEBUG
+	printf("]\n");
+#endif
 
 	return count;
 }
@@ -364,17 +395,17 @@ int handle_event_set(fd_set * readfds, fd_set * writefds, fd_set * exceptfds)
 			data.event_request.flags = event_table[i].flags;
 
 			if ((event_table[i].flags & EH_EXCEPTION) && FD_ISSET((unsigned int)event_table[i].fd, exceptfds)) {
-				//d_printf("Read event for %s\n",event_table[i].ctx->name);
+				d_printf("Exception event for %s\n",event_table[i].ctx->name);
 				event_table[i].ctx->driver->emit(event_table[i].ctx, EVENT_EXCEPTION, &data);
 			}
 
 			if ((event_table[i].flags & EH_WRITE) && FD_ISSET((unsigned int)event_table[i].fd, writefds)) {
-				//d_printf("Write event for %s\n",event_table[i].ctx->name);
+				d_printf("Write event for %s\n",event_table[i].ctx->name);
 				event_table[i].ctx->driver->emit(event_table[i].ctx, EVENT_WRITE, &data);
 			}
 
 			if ((event_table[i].flags & EH_READ) && FD_ISSET((unsigned int)event_table[i].fd, readfds)) {
-				//d_printf("Exception event for %s\n",event_table[i].ctx->name);
+				d_printf("Read event for %s\n",event_table[i].ctx->name);
 				event_table[i].ctx->driver->emit(event_table[i].ctx, EVENT_READ, &data);
 			}
 
@@ -388,9 +419,12 @@ int handle_event_set(fd_set * readfds, fd_set * writefds, fd_set * exceptfds)
 				event_table[i].ctx->driver->emit(event_table[i].ctx, EVENT_ALARM, &data);
 
 				// If the event handler changes the alarm in any way, the 'fired' flag is cleared
-				if (alarm_table[event_table[i].fd].flags & ALARM_FIRED)
+				if (alarm_table[event_table[i].fd].flags & ALARM_FIRED) {
+					d_printf("ALARM event for %s\n",event_table[i].ctx->name);
 					handle_event_alarm(&event_table[i]);
+				}
 			}
+
 		}
 	}
 	return 0;
@@ -433,10 +467,8 @@ int event_loop( long timeout )
 		if( alarm_time > now ) {
 			if( timeout > ( alarm_time - now ))
 				timeout = alarm_time - now;
-		} else {
-			d_printf("pending alarm. setting timeout to zero\n");
+		} else
 			timeout = 0;
-		}
 	}
 
 #ifdef USE_PSELECT
@@ -453,34 +485,73 @@ int event_loop( long timeout )
 	sigprocmask( SIG_SETMASK, &event_signals.event_signal_default, NULL );
 	sleep(0);
 
-	if( event_signals.event_signal_pending_count ) {
-		d_printf("Pending signals - setting timeout = 0\n");
+	if( event_signals.event_signal_pending_count )
 		timeout = 0;
-	}
 
 	struct timeval tm = { timeout / 1000, (timeout % 1000) * 1000 };
 
-	int rc = select( max_fd, &fds_read, &fds_write, &fds_exception, &tm );
+#ifndef NDEBUG
+	int i = 0;
+	printf("READ: ");
+	for(i=0;i<64;i++)
+		if(FD_ISSET(i,&fds_read)) {
+			printf("%d ",i);
+			if( fcntl( i, F_GETFL ) < 0 )
+				printf("*");
+		}
+	printf("WRITE: ");
+	for(i=0;i<64;i++)
+		if(FD_ISSET(i,&fds_write)) {
+			printf("%d ",i);
+			if( fcntl( i, F_GETFL ) < 0 )
+				printf("*");
+		}
+	printf("EXCEPTION: ");
+	for(i=0;i<64;i++)
+		if(FD_ISSET(i,&fds_exception)) {
+			printf("%d ",i);
+			if( fcntl( i, F_GETFL ) < 0 )
+				printf("*");
+		}
+	printf("\n");
 #endif
+
+#ifndef NDEBUG
+	printf("calling select...");fflush(stdout);
+#endif
+	int rc = select( max_fd, &fds_read, &fds_write, &fds_exception, &tm );
+#ifndef NDEBUG
+	printf("done\n");fflush(stdout);
+#endif
+#endif
+
 	sigprocmask(SIG_BLOCK, &event_signals.event_signal_mask, NULL);
 
 	if( rc < 0 ) {
 		d_printf("(p)select returned %d (errno = %d - %s)\n",rc, errno, strerror(errno));
-		if( errno != EINTR )
+
+		if( (errno != EINTR)
+#ifdef mips
+				&& (errno != ENOENT)
+#endif
+				)
 			return -1; // timeout - nothing to do
 		else
 			return 0;
 	}
 
 	if( event_signals.event_signal_pending_count ) {
-		d_printf("Handling signal events...\n");
+		d_printf("Calling handle_pending_signals()\n");
 		handle_pending_signals();
 	}
 
+	d_printf("Calling handle_event_set()\n");
 	rc = handle_event_set( &fds_read, &fds_write, &fds_exception );
 
-	if( !rc )
+	if( !rc ) {
+		d_printf("Calling handle_timer_events()\n");
 		handle_timer_events();
+	}
 
 	return 0;
 }

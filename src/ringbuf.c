@@ -37,6 +37,10 @@
 #include "ringbuf.h"
 #include "netmanage.h"
 
+#ifndef NDEBUG
+#define NDEBUG
+#endif
+
 //
 // Various ringbuffer related functions.
 //
@@ -44,7 +48,9 @@
 // Initialise the ring buffer with maximum and reset all counters.
 void u_ringbuf_init( u_ringbuf_t *rb )
 {
+	d_printf("Entering u_ringbuf_init()\n");
 	rb->read_ptr = rb->write_ptr = 0;
+	d_printf("Leaving u_ringbuf_init()\n");
 }
 
 // return 'true' if the buffer is empty
@@ -79,6 +85,7 @@ ssize_t u_ringbuf_write_fd( u_ringbuf_t *rb, int fd)
 {
 	ssize_t bytes = 0;
 
+	d_printf("Entering ringbuf_write_fd()\n");
 	while(rb->read_ptr < rb->write_ptr) {
 		size_t avail = rb->write_ptr - rb->read_ptr;
 		size_t fixed_read = rb->read_ptr & RINGBUFFER_MODULO;
@@ -95,6 +102,7 @@ ssize_t u_ringbuf_write_fd( u_ringbuf_t *rb, int fd)
 			if( written == 0 || errno == EAGAIN)
 				break;
 
+			d_printf("Leaving ringbuf_write_fd()\n");
 			return -1;
 		}
 	}
@@ -102,6 +110,7 @@ ssize_t u_ringbuf_write_fd( u_ringbuf_t *rb, int fd)
 	if( rb->read_ptr == rb->write_ptr )
 		rb->read_ptr = rb->write_ptr = 0;
 
+	d_printf("Leaving ringbuf_write_fd()\n");
 	return bytes;
 }
 
@@ -116,9 +125,13 @@ ssize_t u_ringbuf_read( u_ringbuf_t *rb, void *buffer, size_t length )
 {
 	size_t bytes = 0;
 
+	d_printf("Entering ringbuf_read(buffer = %p, length = %d)\n", buffer,length);
+
 	while( length && rb->read_ptr < rb->write_ptr )
 	{
-		size_t avail = RINGBUFFER_MAX - (rb->write_ptr-rb->read_ptr);
+		size_t avail = u_ringbuf_ready( rb );
+		//size_t avail = RINGBUFFER_MAX - (rb->write_ptr-rb->read_ptr);
+		d_printf("avail = %d\n",avail);
 		size_t fixed_read = rb->read_ptr & RINGBUFFER_MODULO;
 
 		if( avail > length )
@@ -127,6 +140,7 @@ ssize_t u_ringbuf_read( u_ringbuf_t *rb, void *buffer, size_t length )
 		if( (fixed_read + avail ) > RINGBUFFER_MAX )
 			avail = RINGBUFFER_MAX - fixed_read;
 
+		d_printf("copying %d bytes\n",avail);
 		memcpy( buffer, rb->buffer + fixed_read, avail );
 		rb->read_ptr += avail;
 		buffer += avail;
@@ -134,6 +148,7 @@ ssize_t u_ringbuf_read( u_ringbuf_t *rb, void *buffer, size_t length )
 		length -= avail;
 	}
 
+	d_printf("Leaving ringbuf_read()\n");
 	return (ssize_t)bytes;
 }
 
@@ -143,6 +158,8 @@ ssize_t u_ringbuf_read( u_ringbuf_t *rb, void *buffer, size_t length )
 ssize_t u_ringbuf_write( u_ringbuf_t *rb, void *buffer, size_t length )
 {
 	size_t bytes = 0;
+
+	d_printf("Entering ringbuf_write()\n");
 
 	// Truncate length to the number of bytes available in the buffer
 	size_t avail = RINGBUFFER_MAX - (rb->write_ptr-rb->read_ptr);
@@ -163,6 +180,7 @@ ssize_t u_ringbuf_write( u_ringbuf_t *rb, void *buffer, size_t length )
 		bytes  += eb;
 		length -= eb;
 	}
+	d_printf("Leaving ringbuf_write()\n");
 	return (ssize_t)bytes;
 }
 

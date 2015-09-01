@@ -84,6 +84,11 @@ int exec_shutdown(context_t *ctx)
 			kill( cf->pid, siglist[sigid++] );
 			usleep( 1000 );
 		}
+	if( cf->fd_in >= 0 )
+		close(cf->fd_in);
+
+	if( cf->fd_out >= 0 && !cf->tty )
+		close(cf->fd_out);
 
 	if( ctx->data )
 		free( ctx->data );
@@ -257,7 +262,8 @@ int exec_launch( context_t *ctx, int use_tty )
 		unlockpt( fd_in[FD_READ] );
 		grantpt( fd_in[FD_READ] );
 
-		fd_in[FD_WRITE] = fd_out[FD_READ] = open( slave_name, O_RDWR );
+		//fd_in[FD_WRITE] = fd_out[FD_READ] = open( slave_name, O_RDWR );
+		fd_in[FD_WRITE] = fd_out[FD_READ] = open( slave_name, O_RDWR | O_NOCTTY | O_NONBLOCK );
 
 		if( fd_in[FD_WRITE] < 0 ) {
 			logger(ctx->owner, ctx, "Failed to open pty-slave for %s\n",cmd);
@@ -305,9 +311,12 @@ int exec_launch( context_t *ctx, int use_tty )
 				tcsetattr( cf->fd_in, TCSANOW, & tt );
 			}
 
+			x_printf(ctx,"calling event add %d EH_READ|EH_EXCEPTION\n",cf->fd_in);
 			event_add( ctx, cf->fd_in, EH_READ | EH_EXCEPTION );
 		} else {
+			x_printf(ctx,"calling event add %d EH_READ\n",cf->fd_in);
 			event_add( ctx, cf->fd_in, EH_READ );
+			x_printf(ctx,"calling event add %d EH_EXCEPTION\n",cf->fd_out);
 			event_add( ctx, cf->fd_out, EH_EXCEPTION );
 		}
 
@@ -338,6 +347,41 @@ int exec_launch( context_t *ctx, int use_tty )
 	return 0;
 }
 
+int check_pid_file(context_t *ctx)
+{
+	exec_config_t *cf = (exec_config_t *) ctx->data;
+	int pid = 0;
+
+	if( cf->pid_file ) {
+		struct stat info;
+		if( stat(cf->pid_file, &info) )
+			return 0;
+
+		size_t size = (size_t) info.st_size;
+		if( size > 32 )
+			size = 32;
+
+		char *buffer = alloca(size+1);
+		memset(buffer,0,size+1);
+
+		int fd = open(cf->pid_file, O_RDONLY);
+
+		if( fd >= 0 ) {
+			if( read(fd, buffer, size) == (ssize_t) size ) {
+				pid = atoi(buffer);
+				if( kill( pid, 0 ) )
+					pid = 0;
+			}
+			close( fd );
+		}
+	}
+
+	if( !pid )
+		unlink( cf->pid_file );
+
+	return pid;
+}
+
 #define MAX_READ_BUFFER 1024
 ssize_t exec_handler(context_t *ctx, event_t event, driver_data_t *event_data )
 {
@@ -351,33 +395,53 @@ ssize_t exec_handler(context_t *ctx, event_t event, driver_data_t *event_data )
 	else if( event_data->type == TYPE_DATA )
 		data = & event_data->event_data;
 
-	//x_printf(ctx, "<%s> Event = \"%s\" (%d)\n", ctx->name, event_map[event], event);
+	x_printf(ctx, "<%s> Event = \"%s\" (%d)\n", ctx->name, event_map[event], event);
 
 	switch( event ) {
 		case EVENT_INIT:
 
+			x_printf(ctx,"calling event 1000 EH_WANT_TICK\n");
 			event_add( ctx, 1000, EH_WANT_TICK );
+			x_printf(ctx,"calling event add SIGQUIT\n");
 			event_add( ctx, SIGQUIT, EH_SIGNAL );
+			x_printf(ctx,"calling event add SIGCHLD\n");
 			event_add( ctx, SIGCHLD, EH_SIGNAL );
+			x_printf(ctx,"calling event add SIGPIPE\n");
 			event_add( ctx, SIGPIPE, EH_SIGNAL );
 
 			if( config_istrue( ctx->config, "tty" ) || config_istrue( ctx->config, "pty" ) )
 				cf->flags |= EXEC_TTY_REQUIRED;
 
+			cf->pid_file = config_get_item( ctx->config, "pidfile" );
+			
 			cf->tty_flags = ( config_istrue( ctx->config, "echo" ) ? TTY_ECHO : TTY_NOECHO ) |
 					( config_istrue( ctx->config, "raw" ) ? TTY_RAW : 0 );
 
 			cf->tty = cf->flags & EXEC_TTY_REQUIRED;
 
 		case EVENT_START:
+			{
+				// Clean up any pre-existing instances
+				int pid = check_pid_file( ctx );
+				if( pid ) {
+					x_printf(ctx,"WARNING Found PID File,  killing process\n");
+					kill( pid, SIGTERM );
+					time_t timeout = rel_time(0L) + 10000;
+					while ( !kill(pid, 0) && ( rel_time(0L) < timeout ) ) {
+						x_printf(ctx,"waiting for process %d to go away!",pid);
+						usleep(500*1000);
+					}
+					kill( pid, SIGKILL );
+				}
 
-			if( ! exec_launch( ctx, cf->tty ) ) {
-				cf->state = EXEC_STATE_RUNNING;
-				// Let the parent know the process has started/restarted
-				context_owner_notify( ctx, CHILD_EVENT, 0 );
-			} else {
-				cf->state = EXEC_STATE_ERROR;
-				return context_terminate(ctx);
+				if( ! exec_launch( ctx, cf->tty ) ) {
+					cf->state = EXEC_STATE_RUNNING;
+					// Let the parent know the process has started/restarted
+					context_owner_notify( ctx, CHILD_EVENT, 0 );
+				} else {
+					cf->state = EXEC_STATE_ERROR;
+					return context_terminate(ctx);
+				}
 			}
 			break;
 
@@ -441,23 +505,38 @@ ssize_t exec_handler(context_t *ctx, event_t event, driver_data_t *event_data )
 
 		case EVENT_DATA_INCOMING:
 		case EVENT_DATA_OUTGOING:
+			x_printf( ctx, "INCOMING DATA (probably), cf->state = %d, data = %p\n",cf->state, data);
 			if(( cf->state == EXEC_STATE_RUNNING) && data ) {
 				ssize_t items = u_ringbuf_write( &cf->output, data->data, data->bytes );
 
-				if( !u_ringbuf_empty( &cf->output ) )
+				if( !u_ringbuf_empty( &cf->output ) ) {
+					x_printf(ctx, "Ring buffer non-empty, enabling write on fd %d\n",cf->fd_out);
+					x_printf(ctx,"calling event add %d EH_WRITE\n",cf->fd_out);
 					event_add( ctx, cf->fd_out, EH_WRITE );
+					}
 
 				return items;
 			}
 
 			break;
 
-		case EVENT_WRITE:
-			if( u_ringbuf_ready( &cf->output ))
-				u_ringbuf_write_fd( &cf->output, cf->fd_out );
+		case EVENT_EXCEPTION:
+			x_printf(ctx,"Handling exception on fd %ld\n",fd->fd);
+			break;
 
-			if( u_ringbuf_empty( &cf->output ) )
+		case EVENT_WRITE:
+
+			if( u_ringbuf_ready( &cf->output )) {
+				x_printf(ctx,"Writing data to fd %d\n",cf->fd_out);
+				u_ringbuf_write_fd( &cf->output, cf->fd_out );
+			} else {
+				d_printf("Write event with no data...\n");
+			}
+
+			if( u_ringbuf_empty( &cf->output ) ) {
+				x_printf(ctx,"Write complete.\n");
 				event_delete( ctx, cf->fd_out, EH_WRITE );
+			}
 			break;
 
 		case EVENT_READ:
@@ -486,20 +565,38 @@ ssize_t exec_handler(context_t *ctx, event_t event, driver_data_t *event_data )
 					} else
 						x_printf(ctx," * WARNING: read return unexpected result %d\n",result);
 				} else {
+					x_printf(ctx,"EOF on input fd %ld\n",fd->fd);
+
 					event_delete( ctx, cf->fd_in, EH_NONE );
+					if( !cf->tty)
+						event_delete( ctx, cf->fd_out, EH_EXCEPTION );
+
+					x_printf(ctx, "fd_in = %d, fd_out = %d, is_tty = %d\n",cf->fd_in,cf->fd_out,cf->tty);
+
 					close( cf->fd_in );
 					cf->fd_in = -1;
+
 					if( cf->tty )
 						cf->fd_out = -1;
 
+//					if( cf->tty && ( cf->fd_out != -1) ) {
+//						event_delete( ctx, cf->fd_out, EH_NONE );
+//						cf->fd_out = -1;
+//					}
+
 					if( cf->state == EXEC_STATE_STOPPING ) {
 						if( (cf->flags & (EXEC_RESPAWN|EXEC_TERMINATING)) == EXEC_RESPAWN ) {
+							x_printf(ctx,"Restart: setting up for restart\n");
 							cf->state = EXEC_STATE_IDLE;
 							cf->pending_action_timestamp = rel_time(0L);
-						} else
+						} else {
+							x_printf(ctx,"No-restart: calling terminate()\n");
 							return context_terminate( ctx );
-					} else
+						}
+					} else {
+						x_printf(ctx,"Setting state to \"STOPPING\"\n");
 						cf->state = EXEC_STATE_STOPPING;
+					}
 				}
 			}
 			break;
@@ -518,22 +615,29 @@ ssize_t exec_handler(context_t *ctx, event_t event, driver_data_t *event_data )
 					x_printf(ctx, "PID matches - status = %d. cleaning up\n", WEXITSTATUS(status));
 					// disable further events being recognized for this process
 					cf->pid = -1;
-					if( ! cf->tty ) {
+
+					if( ! cf->tty )
 						close(cf->fd_out);
-						event_delete( ctx, cf->fd_out, EH_NONE );
-					}
+
+					event_delete( ctx, cf->fd_out, (event_handler_flags_t) (EH_WRITE|EH_EXCEPTION) );
 					cf->fd_out = -1;
 
 					// Program termination already signalled
 					if( cf->state == EXEC_STATE_STOPPING ) {
 						if( ( ! (cf->flags & EXEC_TERMINATING )) && ( cf->flags & (EXEC_RESPAWN|EXEC_RESTARTING))) {
+							x_printf(ctx,"SIGNAL - setting up for restart\n");
 							cf->flags &= ~(unsigned int)EXEC_RESTARTING;
 							cf->state = EXEC_STATE_IDLE;
 							cf->pending_action_timestamp = rel_time(0L);
-						} else
+						} else {
+							x_printf(ctx,"SIGNAL - already in STOPPING state.. Terminating.\n");
 							return context_terminate( ctx );
-					} else
+						}
+					} else {
+						x_printf(ctx,"SIGNAL - setting state to stopping\n");
 						cf->state = EXEC_STATE_STOPPING;
+						x_printf(ctx,"ringbuffer is %sempty!\n",u_ringbuf_ready(&cf->output)?"not ":"");
+					}
 				}
 			}
 			break;

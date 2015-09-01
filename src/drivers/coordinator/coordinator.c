@@ -100,6 +100,7 @@ ssize_t coordinator_handler(context_t *ctx, event_t event, driver_data_t *event_
 				cf->control_modem = config_get_item( ctx->config, "control" );
 				cf->control_vpn = config_get_item( ctx->config, "vpncontrol" );
 
+				x_printf(ctx,"calling event add SIGTERM\n");
 				event_add( ctx, SIGTERM, EH_SIGNAL );
 
 				if( config_istrue( ctx->config, "vpnalways" ) )
@@ -113,7 +114,9 @@ ssize_t coordinator_handler(context_t *ctx, event_t event, driver_data_t *event_
 		case EVENT_START:
 
 			cf->state = COORDINATOR_STATE_RUNNING;
+			x_printf(ctx,"calling event ALARM add %d ALARM_INTERVAL\n",COORDINATOR_CONTROL_CHECK_INTERVAL);
 			cf->timer_fd = event_alarm_add( ctx, COORDINATOR_CONTROL_CHECK_INTERVAL, ALARM_INTERVAL );
+			x_printf(ctx,"calling event ALARM add %d ALARM_INTERVAL\n",300000);
 			event_alarm_add( ctx, 300000, ALARM_INTERVAL );
 			check_control_files( ctx );
 			break;
@@ -260,11 +263,33 @@ ssize_t coordinator_handler(context_t *ctx, event_t event, driver_data_t *event_
 			break;
 
 		case EVENT_ALARM:
-			if( event_data->event_alarm == cf->timer_fd )
-				check_control_files(ctx);
-			else {
-				kill(0,SIGTERM);
-				exit(0);
+			{ 
+				time_t t = time(0L);
+				char buffer[128];
+				strftime(buffer,128,"%T ", localtime(&t));
+				x_printf(ctx,"alarm occurred at %s\n",buffer);
+
+				if( event_data->event_alarm == cf->timer_fd )
+					check_control_files(ctx);
+#ifndef NDEBUG
+				else {
+					x_printf(ctx,"Triggering emergency termination\n");
+					kill(0,SIGTERM);
+					exit(0);
+				}
+#endif
+
+				if( cf->flags & COORDINATOR_VPN_STARTING ) {
+					x_printf(ctx,"VPN Starting up soon...\n");
+					time_t now = rel_time(0L);
+					if( (now - cf->vpn_startup_pending) > VPN_STARTUP_DELAY ) {
+						cf->flags &= ~(unsigned int)COORDINATOR_VPN_STARTING;
+						if( ! start_service( &cf->vpn, cf->vpn_driver, ctx->config, ctx, 0L ) ) {
+							x_printf(ctx,"Failed to start VPN.  Disabling - this will cause a retry\n");
+							cf->flags |= COORDINATOR_VPN_DISABLE;
+						}
+					}
+				}
 			}
 			break;
 		
@@ -307,12 +332,10 @@ int check_control_files(context_t *ctx)
 			x_printf(ctx,"Control file exists.. enabling\n");
 			cf->flags &= ~(unsigned int)COORDINATOR_VPN_DISABLE;
 			if( cf->flags & (COORDINATOR_VPN_STANDALONE|COORDINATOR_NETWORK_UP) ) {
-				x_printf(ctx,"Attempting to launch vpn service %s\n", cf->vpn_driver);
+				x_printf(ctx,"Setting up to launch vpn service %s after startup delay of %d\n", cf->vpn_driver, VPN_STARTUP_DELAY);
 				if( !cf->vpn ) {
-					if( ! start_service( &cf->vpn, cf->vpn_driver, ctx->config, ctx, 0L ) ) {
-						x_printf(ctx,"Failed to start VPN.  Disabling - this will cause a retry\n");
-						cf->flags |= COORDINATOR_VPN_DISABLE;
-					}
+					cf->flags |= COORDINATOR_VPN_STARTING;
+					cf->vpn_startup_pending = rel_time(0L);
 				}
 			}
 		}

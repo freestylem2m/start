@@ -75,6 +75,7 @@ ssize_t console_handler(context_t *ctx, event_t event, driver_data_t *event_data
 			cf->fd_in = 0;
 			cf->fd_out = 1;
 
+			x_printf(ctx,"calling event add %d EH_DEFAULT\n",cf->fd_in);
 			event_add(ctx, cf->fd_in, EH_DEFAULT);
 
 			cf->state = CONSOLE_STATE_RUNNING;

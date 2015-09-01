@@ -8,6 +8,7 @@
 #define FD_WRITE 1
 
 #define COORDINATOR_CONTROL_CHECK_INTERVAL  3000
+#define VPN_STARTUP_DELAY  6000
 
 typedef enum {
 	COORDINATOR_STATE_IDLE,
@@ -26,6 +27,7 @@ typedef enum {
 	COORDINATOR_NETWORK_DISABLE = 32,
 	COORDINATOR_VPN_DISABLE     = 64,
 	COORDINATOR_VPN_STANDALONE  = 128,
+	COORDINATOR_VPN_STARTING    = 256,
 } coordinator_flags_t;
 
 typedef struct coordinator_config_t {
@@ -45,6 +47,7 @@ typedef struct coordinator_config_t {
     context_t *vpn;
 	
 	int        timer_fd;
+	time_t     vpn_startup_pending;
 } coordinator_config_t;
 
 extern int coordinator_init(context_t *);
