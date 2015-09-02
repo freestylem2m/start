@@ -89,7 +89,7 @@ int alarm_add(context_t *ctx, time_t interval, event_alarm_flags_t flags)
 {
 	int i;
 	time_t now;
-	
+
 	if( !flags )
 		return -1;
 
@@ -107,7 +107,7 @@ int alarm_add(context_t *ctx, time_t interval, event_alarm_flags_t flags)
 	alarm_table[i].event_time = now + interval;
 	alarm_table[i].ctx = ctx;
 	alarm_table[i].event_next = 0;
-	
+
 	return alarm_insert_list( i );
 }
 

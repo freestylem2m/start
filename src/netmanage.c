@@ -32,6 +32,8 @@
 #include <stdlib.h>
 #include <sys/types.h>
 #include <unistd.h>
+#include <sys/stat.h>
+#include <fcntl.h>
 
 #include "config.h"
 #include "driver.h"
@@ -83,6 +85,54 @@ context_t *start_service( context_t **pctx, const char *name, const config_t *pa
     return safe_start_service( pctx, name, parent_config, owner, pdata, 0 );
 }
 
+#define PID_BUFFER_MAX 32
+int check_pid_file(void)
+{
+    const char *pid_file = config_item( "global", "pidfile" );
+    struct stat info;
+    char pid_buffer[PID_BUFFER_MAX];
+    int pid, pid_fd, pid_length;
+
+    if( !pid_file )
+        return 0;
+
+    if( ! stat( pid_file, &info ) ) {
+        pid_fd = open( pid_file, O_RDONLY );
+        if( pid_fd ) {
+            pid_length = read( pid_fd, pid_buffer, PID_BUFFER_MAX-1 );
+            close( pid_fd );
+
+            if(pid_length >= 0) {
+                pid_buffer[pid_length] = 0;
+                pid = atoi( pid_buffer );
+
+				if( !kill(pid, 0 ) )
+					return pid;
+            }
+        }
+        unlink( pid_file );
+    }
+
+    pid_fd =open( pid_file, O_CREAT|O_TRUNC|O_WRONLY );
+    pid_length = snprintf(pid_buffer,PID_BUFFER_MAX, "%d\n",getpid());
+
+    if( pid_fd >= 0 ) {
+        if( pid_length >= 0 )
+            write( pid_fd, pid_buffer, (size_t) pid_length );
+        close( pid_fd );
+    }
+
+    return 0;
+}
+
+void cleanup_pid_file(void)
+{
+    const char *pid_file = config_item( "global", "pidfile" );
+
+	if( pid_file )
+		unlink( pid_file );
+}
+
 void run()
 {
 	while (!event_loop(1000))
@@ -94,11 +144,18 @@ void run()
 
 int main(int ac, char *av[])
 {
+	int last_pid = 0;
+
 	parse_cmdline(ac, av);
 
 	if( config_read_file(config_file) < 0) {
 		fprintf(stderr,"Unable to read config file %s\n",config_file);
 		exit(-1);
+	}
+
+	if( (last_pid = check_pid_file()) ) {
+		fprintf(stderr,"%s process already running (pid = %d)\n",av[0],last_pid);
+		exit( 1 );
 	}
 
 	const char **default_service = config_itemlist( "global", "default" );
@@ -125,5 +182,7 @@ int main(int ac, char *av[])
 	run();
 
 	config_cleanup();
-	return 1;
+	cleanup_pid_file();
+
+	return 0;
 }

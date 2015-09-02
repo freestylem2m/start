@@ -178,9 +178,10 @@ ssize_t process_unicorn_data( context_t *ctx, size_t ready )
 		emit( ctx->owner, EVENT_DATA_INCOMING, &notification );
 
 		cf->flags &= ~(unsigned int)UNICORN_EXPECTING_DATA;
+		return 0;
 	}
 	x_printf(ctx, "Leaving process_unicorn_data()\n");
-	return 0;
+	return -1;
 }
 
 ssize_t process_unicorn_packet( context_t *ctx )
@@ -224,6 +225,8 @@ ssize_t unicorn_handler(context_t *ctx, event_t event, driver_data_t *event_data
 	event_child_t *child = 0L;
 
 	unicorn_config_t *cf = (unicorn_config_t *) ctx->data;
+
+	x_printf(ctx, "<%s> Event = \"%s\" (%d)\n", ctx->name, event_map[event], event);
 
 	if (event_data->type == TYPE_DATA)
 		data = &event_data->event_data;
@@ -287,13 +290,20 @@ ssize_t unicorn_handler(context_t *ctx, event_t event, driver_data_t *event_data
 	case EVENT_RESTART:
 		// This event is used to signal that the modem driver needs to resync.
 		// set the 'reconnecting' flag and send a disconnect
+		x_printf(ctx,"EVENT_RESTART: - sending disconnect to modem\n");
 		if( event_data->source == ctx->owner ) {
 			cf->pending_action_timeout = rel_time(0L);
 			cf->flags |= UNICORN_WAITING_FOR_CONNECT;
-			if( cf->modem )
+			if( cf->modem ) {
+				x_printf(ctx, "Sending CMD_DISCONNECT to modem driver (%s)\n",cf->modem->name);
 				send_unicorn_command( ctx, CMD_DISCONNECT, CMD_ST_OFFLINE, 0, 0L );
-		} else
+			} else {
+				x_printf(ctx, "Modem driver not running.. doing nothing.\n");
+			}
+		} else {
+			x_printf(ctx,"Forwarding EVENT_RESTART to owner (%s)\n",ctx->name);
 			emit( ctx->owner, EVENT_RESTART, event_data);
+		}
 		break;
 
 	case EVENT_CHILD:
@@ -385,7 +395,7 @@ ssize_t unicorn_handler(context_t *ctx, event_t event, driver_data_t *event_data
 			}
 
 			if( ((now - cf->last_message) > 120*1000 ) && ( cf->driver_state != CMD_ST_UNKNOWN )) {
-		
+
 				// Its been a couple of minutes since the last keepalive, reset the driver_state
 				// to unknown and prompt for one.
 				cf->driver_state = CMD_ST_UNKNOWN;

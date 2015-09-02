@@ -41,19 +41,21 @@
 //
 
 #ifndef NDEBUG
+
 #ifdef mips
 char               *config_file = (char *)"/mnt/netmanage.conf";
-#else
+#else   // mips
 char               *config_file = (char *)"netmanage.conf";
-#endif
-char               *msg_filter = 0L;
-#else
-char               *config_file = (char *)"/flash/netmanage.conf";
-#endif
+#endif  // mips
 
-const char         *programname = 0L;
 int                 debug = 0;
 int                 debug_quiet = 0;
+char               *msg_filter = 0L;
+#else   // NDEBUG
+char               *config_file = (char *)"/flash/netmanage.conf";
+#endif  // NDEBUG
+
+const char         *programname = 0L;
 
 // ********************************************************************************
 // Command line parsing support...
@@ -137,9 +139,9 @@ typedef struct _cmdarg
 // Default command line arguments for this program
 cmdarg              args[] = {
 	{"c|config", A_STRING,._vec.s_ptr = &config_file, "--config=file      Specify configuration file."},
+#ifndef NDEBUG
 	{"d|debug", A_FLAG,._vec.f_ptr = {0, &debug}, "--debug            Enable verbose logging"},
 	{"q|quiet", A_FLAG,._vec.f_ptr = {0, &debug_quiet}, "--quiet            Silence logging"},
-#ifndef NDEBUG
 	{"F|filter", A_STRING,._vec.s_ptr = &msg_filter, "--filter=msg       Specify debug log filter"},
 #endif
 	{NULL, A_FLAG,._vec = {}}

@@ -145,7 +145,7 @@ int config_istrue(const config_t * section, const char *item)
 		case 't':
 		case 'y':
 			// "yes" or "true" or any "y" or "t" word
-			return 1;			
+			return 1;
 		default:
 			// positive number is true, zero or negative is false.
 			return (atoi(i) > 0)?1:0;

@@ -173,7 +173,6 @@ context_t *context_create(const char *service_name, const config_t *service_conf
 
 	if( ! ptr )
 		return 0L;
-	
 
 	strncpy( ptr->name, service_name, MAX_SERVICE_NAME );
 	ptr->config = service_config;

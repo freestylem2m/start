@@ -46,6 +46,10 @@
 #include "events.h"
 #include "driver.h"
 
+#ifndef NDEBUG
+#define EVENT_DEBUG
+#endif
+
 // special secret squirrels..
 // Signal handler handles sigchld internally and stores the PID and status here.
 
@@ -251,12 +255,12 @@ int create_event_set( fd_set *readfds, fd_set *writefds, fd_set *exceptfds, int 
 	FD_ZERO( writefds );
 	FD_ZERO( exceptfds );
 
-#if 0
+#ifdef EVENT_DEBUG
 	d_printf("creating event set [");
 #endif
 	for( i = 0; i < MAX_EVENT_REQUESTS; i++ ) {
 		if( event_table[i].flags ) {
-#if 0
+#ifdef EVENT_DEBUG
 #ifndef NDEBUG
 			printf(" %d(%s):%ld",i,event_table[i].ctx->name, event_table[i].fd);
 			if( event_table[i].flags & EH_READ )
@@ -302,7 +306,7 @@ int create_event_set( fd_set *readfds, fd_set *writefds, fd_set *exceptfds, int 
 #endif
 		}
 	}
-#if 0
+#ifdef EVENT_DEBUG
 #ifndef NDEBUG
 	printf("]\n");
 #endif

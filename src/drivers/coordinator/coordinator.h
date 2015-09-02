@@ -45,7 +45,7 @@ typedef struct coordinator_config_t {
     context_t *unicorn;
     context_t *network;
     context_t *vpn;
-	
+
 	int        timer_fd;
 	time_t     vpn_startup_pending;
 } coordinator_config_t;

@@ -241,7 +241,7 @@ int exec_launch( context_t *ctx, int use_tty )
 		x_printf(ctx,"process_command() failed\n");
 		return -1;
 	}
-	
+
 	int fd_in[2] = { -1,-1 };
 	int fd_out[2] = { -1,-1 };
 
@@ -339,7 +339,7 @@ int exec_launch( context_t *ctx, int use_tty )
 		int fd;
 		for(fd = 3; fd < 1024; fd ++)
 			close(fd);
-		
+
 		execv(exe,vec);
 		exit(-128);
 	}
@@ -347,7 +347,7 @@ int exec_launch( context_t *ctx, int use_tty )
 	return 0;
 }
 
-int check_pid_file(context_t *ctx)
+int exec_check_pid_file(context_t *ctx)
 {
 	exec_config_t *cf = (exec_config_t *) ctx->data;
 	int pid = 0;
@@ -413,7 +413,7 @@ ssize_t exec_handler(context_t *ctx, event_t event, driver_data_t *event_data )
 				cf->flags |= EXEC_TTY_REQUIRED;
 
 			cf->pid_file = config_get_item( ctx->config, "pidfile" );
-			
+
 			cf->tty_flags = ( config_istrue( ctx->config, "echo" ) ? TTY_ECHO : TTY_NOECHO ) |
 					( config_istrue( ctx->config, "raw" ) ? TTY_RAW : 0 );
 
@@ -422,7 +422,7 @@ ssize_t exec_handler(context_t *ctx, event_t event, driver_data_t *event_data )
 		case EVENT_START:
 			{
 				// Clean up any pre-existing instances
-				int pid = check_pid_file( ctx );
+				int pid = exec_check_pid_file( ctx );
 				if( pid ) {
 					x_printf(ctx,"WARNING Found PID File,  killing process\n");
 					kill( pid, SIGTERM );

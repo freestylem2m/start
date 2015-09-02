@@ -1,4 +1,5 @@
 /*
+ *
  * File: coordinator.c
  *
  *
@@ -171,7 +172,7 @@ ssize_t coordinator_handler(context_t *ctx, event_t event, driver_data_t *event_
 									emit( cf->network, EVENT_TERMINATE, 0L );
 								break;
 						}
-		
+
 						break;
 					default:
 						break;
@@ -200,8 +201,10 @@ ssize_t coordinator_handler(context_t *ctx, event_t event, driver_data_t *event_
 						if( cf->vpn && !(cf->flags & COORDINATOR_VPN_STANDALONE) )
 							emit( cf->vpn, EVENT_TERMINATE, 0L );
 
-						if( cf->unicorn )
-							emit( cf->unicorn, EVENT_RESTART, 0L );
+						if( cf->unicorn ) {
+							driver_data_t notification = { TYPE_CUSTOM, ctx, {} };
+							emit( cf->unicorn, EVENT_RESTART, &notification );
+						}
 						else if (cf->flags & COORDINATOR_TERMINATING)
 							context_terminate(ctx);
 						break;
@@ -239,7 +242,7 @@ ssize_t coordinator_handler(context_t *ctx, event_t event, driver_data_t *event_
 
 			if( cf->unicorn )
 				emit( cf->unicorn, EVENT_TERMINATE, 0L );
-		
+
 			if( cf->state == COORDINATOR_STATE_RUNNING ) {
 				cf->flags |= COORDINATOR_TERMINATING;
 			} else
@@ -263,7 +266,7 @@ ssize_t coordinator_handler(context_t *ctx, event_t event, driver_data_t *event_
 			break;
 
 		case EVENT_ALARM:
-			{ 
+			{
 				time_t t = time(0L);
 				char buffer[128];
 				strftime(buffer,128,"%T ", localtime(&t));
@@ -292,7 +295,7 @@ ssize_t coordinator_handler(context_t *ctx, event_t event, driver_data_t *event_
 				}
 			}
 			break;
-		
+
         default:
             x_printf(ctx,"\n *\n *\n * Emitted some kind of event \"%s\" (%d)\n *\n *\n", event_map[event], event);
     }
@@ -343,7 +346,7 @@ int check_control_files(context_t *ctx)
 		if( !vpn_enable ) {
 			cf->flags |= COORDINATOR_VPN_DISABLE;
 			if( cf->vpn )
-				emit( cf->unicorn, EVENT_TERMINATE, 0L );
+				emit( cf->vpn, EVENT_TERMINATE, 0L );
 		}
 	}
 
