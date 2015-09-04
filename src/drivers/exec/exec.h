@@ -40,7 +40,7 @@ typedef struct exec_config_t {
 	int fd_out;
 	int tty;
 	exec_tty_flags_t tty_flags;
-	int restart_delay;
+	time_t restart_delay;
 	time_t last_tick;
 	time_t pending_action_timestamp;
 	u_ringbuf_t output;

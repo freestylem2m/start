@@ -61,12 +61,6 @@ int exec_init(context_t *ctx)
 		return 0;
 
 	cf->state = EXEC_STATE_IDLE;
-	cf->restart_delay = 10000;
-
-	if( config_istrue( ctx->config, "respawn" ) )
-		cf->flags |= EXEC_RESPAWN;
-
-	u_ringbuf_init( &cf->output );
 
 	ctx->data = cf;
 
@@ -409,13 +403,24 @@ ssize_t exec_handler(context_t *ctx, event_t event, driver_data_t *event_data )
 			x_printf(ctx,"calling event add SIGPIPE\n");
 			event_add( ctx, SIGPIPE, EH_SIGNAL );
 
-			if( config_istrue( ctx->config, "tty" ) || config_istrue( ctx->config, "pty" ) )
+			if( !  config_get_timeval( ctx->config, "interval", &cf->restart_delay ) )
+				cf->restart_delay = 10000;
+
+			if( config_istrue( ctx->config, "respawn", 0 ))
+				cf->flags |= EXEC_RESPAWN;
+
+			u_ringbuf_init( &cf->output );
+
+			if( config_istrue( ctx->config, "tty", 0 ) || config_istrue( ctx->config, "pty", 0 ) )
 				cf->flags |= EXEC_TTY_REQUIRED;
 
 			cf->pid_file = config_get_item( ctx->config, "pidfile" );
 
-			cf->tty_flags = ( config_istrue( ctx->config, "echo" ) ? TTY_ECHO : TTY_NOECHO ) |
-					( config_istrue( ctx->config, "raw" ) ? TTY_RAW : 0 );
+			cf->tty_flags = ( config_istrue( ctx->config, "echo", 1 ) ? TTY_ECHO :
+			                ( config_istrue( ctx->config, "noecho", 0 ) ? TTY_NOECHO : TTY_ECHO )) |
+					        ( config_istrue( ctx->config, "raw", 0 ) ? TTY_RAW : 0 );
+
+			d_printf("tty_flags = %02x\n",cf->tty_flags );
 
 			cf->tty = cf->flags & EXEC_TTY_REQUIRED;
 

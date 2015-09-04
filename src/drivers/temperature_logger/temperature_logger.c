@@ -77,7 +77,10 @@ ssize_t temperature_logger_handler(context_t *ctx, event_t event, driver_data_t 
 	switch (event) {
 		case EVENT_INIT:
 			{
-				time_t interval = config_get_timeval( ctx->config, "interval" );
+				time_t interval;
+				if (! config_get_timeval( ctx->config, "interval", &interval ) )
+					interval = 300000;
+
 				cf->logfile = config_get_item( ctx->config, "logfile" );
 				cf->format_str = config_get_item( ctx->config, "format" );
 
@@ -92,7 +95,7 @@ ssize_t temperature_logger_handler(context_t *ctx, event_t event, driver_data_t 
 				cf->format_content[1].type = FMT_UINT;
 
 				x_printf(ctx,"calling event ALARM add %ld ALARM_INTERVAL\n",interval);
-				cf->timer_fd = event_alarm_add( ctx, (time_t) interval, ALARM_INTERVAL );
+				cf->timer_fd = event_alarm_add( ctx, interval, ALARM_INTERVAL );
 			}
 			break;
 

@@ -130,6 +130,7 @@ typedef struct unicorn_config_t {
 	time_t pending_action_timeout;
 	time_t retry_time;
 
+	const char *driver;
 	const char *pid_file;
 
 	frmHdr_t  msgHdr;

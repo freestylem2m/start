@@ -104,7 +104,7 @@ ssize_t coordinator_handler(context_t *ctx, event_t event, driver_data_t *event_
 				x_printf(ctx,"calling event add SIGTERM\n");
 				event_add( ctx, SIGTERM, EH_SIGNAL );
 
-				if( config_istrue( ctx->config, "vpnalways" ) )
+				if( config_istrue( ctx->config, "vpnalways", 0 ) )
 					cf->flags |= COORDINATOR_VPN_STANDALONE;
 
 				cf->flags |= COORDINATOR_NETWORK_DISABLE|COORDINATOR_VPN_DISABLE;

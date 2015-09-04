@@ -243,17 +243,16 @@ ssize_t unicorn_handler(context_t *ctx, event_t event, driver_data_t *event_data
 			x_printf(ctx,"calling event 1000 EH_WANT_TICK\n");
 			event_add( ctx, 1000, EH_WANT_TICK );
 
-			const char *endpoint = config_get_item( ctx->config, "endpoint" );
+			cf->driver = config_get_item( ctx->config, "endpoint" );
 
-			cf->retry_time = config_get_timeval( ctx->config, "retry" );
-			if( !cf->retry_time )
+			if( ! config_get_timeval( ctx->config, "retry", &cf->retry_time ) )
 				cf->retry_time = 120*1000;
 
-			if( endpoint )
-				start_service( &cf->modem, endpoint, ctx->config, ctx, 0L );
+			if( cf->driver )
+				start_service( &cf->modem, cf->driver, ctx->config, ctx, 0L );
 
 			if( !cf->modem ) {
-				logger( ctx->owner, ctx, "Unable to start endpoint driver. Exiting\n" );
+				logger( ctx->owner, ctx, "Unable to launch modem driver. Exiting\n" );
 				cf->state = UNICORN_STATE_ERROR;
 				context_terminate( ctx );
 				return -1;
@@ -412,9 +411,8 @@ ssize_t unicorn_handler(context_t *ctx, event_t event, driver_data_t *event_data
 			if( (cf->flags & UNICORN_RESTARTING) && ((now - cf->pending_action_timeout) > UNICORN_RESTART_DELAY )) {
 				x_printf(ctx,"Restart delay expired - restarting modem driver\n");
 				cf->pending_action_timeout = rel_time(0L);
-				const char *endpoint = config_get_item( ctx->config, "endpoint" );
-				if( endpoint )
-					start_service( &cf->modem, endpoint, ctx->config, ctx, 0L );
+				if( cf->driver )
+					start_service( &cf->modem, cf->driver, ctx->config, ctx, 0L );
 			} else if( (cf->flags & UNICORN_RECONNECTING) && ((now - cf->pending_action_timeout) > cf->retry_time )) {
 				x_printf(ctx,"Reconnect delay expired - attempting reconnect\n");
 				cf->pending_action_timeout = rel_time(0L);

@@ -33,7 +33,7 @@
 typedef struct scalefactor_s
 {
 	char                c;
-	int                 scale;
+	unsigned int        scale;
 } scalefactor;
 
 extern const scalefactor binary_scale[];

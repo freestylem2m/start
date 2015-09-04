@@ -74,7 +74,6 @@ typedef enum _argtype
 const scalefactor binary_scale[] = {
 	{ 'k', 1000 },
 	{ 'm', 1000000 },
-	{ 's', 1000 },
 	{ 'g', 1000000000 },
 	{ 'K', 1024 },
 	{ 'M', 1024*1024 },

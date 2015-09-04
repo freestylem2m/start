@@ -73,11 +73,14 @@ const char *config_get_item( const config_t *section, const char *item )
 	return 0L;
 }
 
-unsigned int config_get_binval(const config_t *section, const char *item)
+int config_get_binval(const config_t *section, const char *item, unsigned int *pval)
 {
 	char     *i = (char *) config_get_item(section, item);
 
-	long int val = strtol(i, &i, 10);
+	if( !i )
+		return 0;
+
+	unsigned long val = (unsigned int) strtol(i, &i, 10);
 
 	while( i && *i ) {
 		const scalefactor *s = binary_scale;
@@ -89,26 +92,32 @@ unsigned int config_get_binval(const config_t *section, const char *item)
 		i++;
 	}
 
-	return (unsigned int) val;
+	*pval = val;
+
+	return 1;
 }
 
-int config_get_intval(const config_t *section, const char *item, int *val)
+int config_get_intval(const config_t *section, const char *item, int *pval)
 {
 	char     *i = (char *) config_get_item(section, item);
 
-	if( i ) {
-		*val = (int) strtol(i, 0L, 10);
-		return 1;
-	}
+	if( !i )
+		return 0;
 
-	return 0;
+	if( i )
+		*pval = (int) strtol(i, 0L, 10);
+
+	return 1;
 }
 
-time_t config_get_timeval(const config_t *section, const char *item)
+int config_get_timeval(const config_t *section, const char *item, time_t *pval)
 {
 	char     *i = (char *) config_get_item(section, item);
 
-	long int val = strtol(i, &i, 10);
+	if( !i )
+		return 0;
+
+	time_t val = strtol(i, &i, 10);
 
 	while( i && *i ) {
 		const scalefactor *s = time_scale;
@@ -120,15 +129,16 @@ time_t config_get_timeval(const config_t *section, const char *item)
 		i++;
 	}
 
-	return (time_t) val;
+	*pval = val;
+	return 0;
 }
 
-int config_istrue(const config_t * section, const char *item)
+int config_istrue(const config_t * section, const char *item, int def)
 {
 	const char     *i = config_get_item(section, item);
 
 	if( !i )
-		return 0;
+		return def;
 
 	switch( tolower( *i ) ) {
 		case 'o':

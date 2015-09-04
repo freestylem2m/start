@@ -91,7 +91,7 @@ ssize_t logger_handler(context_t *ctx, event_t event, driver_data_t *event_data 
 
 	switch( event ) {
 		case EVENT_INIT:
-			if(( cf->log_driver = config_get_item( ctx->config, "log_driver" ) )) {
+			if(( cf->log_driver = config_get_item( ctx->config, "logdriver" ) )) {
 				if( strchr( cf->log_driver, '/' ) )
 					cf->log_fd = open( cf->log_driver, O_RDWR|O_APPEND|O_CREAT, 0777 );
 				else
