@@ -67,8 +67,6 @@ int coordinator_shutdown( context_t *ctx)
 		context_terminate( cf->network );
 	if( cf->unicorn )
 		context_terminate ( cf->unicorn );
-	if( cf->logger )
-		context_terminate( cf->logger );
 
 	free( cf );
 
@@ -93,7 +91,6 @@ ssize_t coordinator_handler(context_t *ctx, event_t event, driver_data_t *event_
 	switch( event ) {
 		case EVENT_INIT:
 			{
-				const char *log = config_get_item( ctx->config, "logger" );
 				cf->modem_driver = config_get_item( ctx->config, "modemdriver" );
 				cf->network_driver = config_get_item( ctx->config, "networkdriver" );
 				cf->vpn_driver = config_get_item( ctx->config, "vpndriver" );
@@ -108,9 +105,6 @@ ssize_t coordinator_handler(context_t *ctx, event_t event, driver_data_t *event_
 					cf->flags |= COORDINATOR_VPN_STANDALONE;
 
 				cf->flags |= COORDINATOR_NETWORK_DISABLE|COORDINATOR_VPN_DISABLE;
-
-				if( log )
-					start_service( &cf->logger, log, ctx->config, ctx, 0L );
 			}
 		case EVENT_START:
 
@@ -120,10 +114,6 @@ ssize_t coordinator_handler(context_t *ctx, event_t event, driver_data_t *event_
 			x_printf(ctx,"calling event ALARM add %d ALARM_INTERVAL\n",300000);
 			event_alarm_add( ctx, 300000, ALARM_INTERVAL );
 			check_control_files( ctx );
-			break;
-
-		case EVENT_LOGGING:
-			emit( cf->logger, event, event_data );
 			break;
 
 		case EVENT_RESTART:
@@ -142,7 +132,7 @@ ssize_t coordinator_handler(context_t *ctx, event_t event, driver_data_t *event_
 					case CHILD_STOPPED:
 						x_printf(ctx,"Unicorn driver has exited.  Terminating\n");
 						cf->unicorn = 0L;
-						cf->flags &= ~(unsigned int)COORDINATOR_MODEM_UP;
+						cf->flags &= ~(unsigned int) (COORDINATOR_MODEM_UP|COORDINATOR_MODEM_ONLINE);
 
 						if( cf->network )
 							emit( cf->network, EVENT_TERMINATE, 0L );
@@ -202,8 +192,10 @@ ssize_t coordinator_handler(context_t *ctx, event_t event, driver_data_t *event_
 							emit( cf->vpn, EVENT_TERMINATE, 0L );
 
 						if( cf->unicorn ) {
-							driver_data_t notification = { TYPE_CUSTOM, ctx, {} };
-							emit( cf->unicorn, EVENT_RESTART, &notification );
+							if( cf->flags & COORDINATOR_MODEM_ONLINE ) {
+								driver_data_t notification = { TYPE_CUSTOM, ctx, {} };
+								emit( cf->unicorn, EVENT_RESTART, &notification );
+							}
 						}
 						else if (cf->flags & COORDINATOR_TERMINATING)
 							context_terminate(ctx);

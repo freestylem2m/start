@@ -1,5 +1,5 @@
 /*
- * File: console.c
+ * File: stdio.c
  *
  *
  *
@@ -35,45 +35,35 @@
 #include <ctype.h>
 #include <sys/wait.h>
 #include <sys/stat.h>
-#include <sys/ioctl.h>
-#include <termios.h>
-#include <fcntl.h>
 
 #include "netmanage.h"
 #include "driver.h"
 #include "events.h"
-#include "console.h"
-#include "logger.h"
+#include "stdio.h"
 #include "clock.h"
 
-int console_init(context_t *ctx)
+int stdio_init(context_t *ctx)
 {
-	if (0 == (ctx->data = calloc(sizeof(console_config_t), 1)))
+	if (0 == (ctx->data = calloc(sizeof(stdio_config_t), 1)))
 		return 0;
 
 	return 1;
 }
 
-int console_shutdown(context_t *ctx)
+int stdio_shutdown(context_t *ctx)
 {
-	console_config_t *cf = (console_config_t *) ctx->data;
+	if( ctx->data )
+		free( ctx->data );
 
-	if( cf->state == CONSOLE_STATE_RUNNING )
-		if( cf->pty >= 0 ) {
-			ioctl( cf->pty, TIOCMSET, &cf->pty_config );
-			close( cf->pty );
-		}
-
-	free( cf );
 	return 0;
 }
 
-ssize_t console_handler(context_t *ctx, event_t event, driver_data_t *event_data)
+ssize_t stdio_handler(context_t *ctx, event_t event, driver_data_t *event_data)
 {
 	event_request_t *fd = 0;
 	event_data_t *data = 0L;
 
-	console_config_t *cf = (console_config_t *) ctx->data;
+	stdio_config_t *cf = (stdio_config_t *) ctx->data;
 
 	x_printf(ctx, "<%s> Event = \"%s\" (%d)\n", ctx->name, event_map[event], event);
 
@@ -84,27 +74,26 @@ ssize_t console_handler(context_t *ctx, event_t event, driver_data_t *event_data
 
 	switch (event) {
 		case EVENT_INIT:
-			cf->pty = open( "/dev/tty", O_RDWR|O_NOCTTY|O_NONBLOCK );
+			cf->fd_in = 0;
+			cf->fd_out = 1;
 
-			event_add(ctx, cf->pty, EH_DEFAULT);
-			event_add(ctx, SIGWINCH, EH_SIGNAL);
+			x_printf(ctx,"calling event add %d EH_DEFAULT\n",cf->fd_in);
+			event_add(ctx, cf->fd_in, EH_DEFAULT);
 
-			ioctl(cf->pty, TIOCMGET, &cf->pty_config );
-			ioctl(cf->pty, TIOCGWINSZ, &cf->pty_size );
-
-			cf->state = CONSOLE_STATE_RUNNING;
-
-		case EVENT_START:
+			cf->state = STDIO_STATE_RUNNING;
 			break;
 
 		case EVENT_TERMINATE:
-			event_delete(ctx, cf->pty, EH_NONE);
+			close( cf->fd_in );
+			cf->flags |= STDIO_TERMINATING ;
+
+			event_delete(ctx, cf->fd_in, EH_NONE);
 			context_terminate(ctx);
 			break;
 
 		case EVENT_DATA_INCOMING:
 		case EVENT_DATA_OUTGOING:
-			if( write( cf->pty, data->data, data->bytes ) != (ssize_t) (data->bytes) )
+			if( write( cf->fd_out, data->data, data->bytes ) < 0 )
 				x_printf(ctx,"Failed to forward outgoing data\n");
 			break;
 
@@ -127,20 +116,12 @@ ssize_t console_handler(context_t *ctx, event_t event, driver_data_t *event_data
 					driver_data_t notification = { TYPE_DATA, ctx, {} };
 					notification.event_data.data = read_buffer;
 					notification.event_data.bytes = (size_t) result;
-
-					emit2(ctx, EVENT_DATA_INCOMING, &notification );
+					emit(ctx->owner, EVENT_DATA_INCOMING, &notification );
 				} else {
 					event_delete(ctx, fd->fd, EH_NONE);
 					context_terminate(ctx);
 				}
 
-			}
-			break;
-
-		case EVENT_SIGNAL:
-			if( event_data->event_signal == SIGWINCH ) {
-				ioctl(cf->pty, TIOCGWINSZ, &cf->pty_size );
-				context_owner_notify( ctx, CHILD_EVENT, CHILD_EVENT_WINSIZE);
 			}
 			break;
 

@@ -590,7 +590,17 @@ ssize_t emit( context_t *ctx, event_t event, driver_data_t *event_data )
 	if( ctx && (ctx->state != CTX_UNUSED) && ctx->driver )
 		return ctx->driver->emit( ctx, event,event_data ? event_data : DRIVER_DATA_NONE );
 	else
-		d_printf("emit(%s->%s) called for bad context %p (owner = %s)\n",event_data?event_data->source->name:"unknown",ctx->name,ctx,ctx->owner?ctx->owner->name:"NA" );
+		d_printf("emit(%s->%s) called for bad context %p (owner = %s)\n",event_data?event_data->source->name:"unknown",ctx?ctx->name:"unknown",ctx,(ctx&&ctx->owner)?ctx->owner->name:"NA" );
+
+	return -1;
+}
+
+ssize_t emit2( context_t *ctx, event_t event, driver_data_t *event_data )
+{
+	if( ctx && ctx->owner )
+		return emit( ctx->owner, event, event_data );
+	else
+		d_printf("emit2(%s->%s) called for bad context %p (owner = %s)\n",event_data?event_data->source->name:"unknown",ctx?ctx->name:"unknown",ctx,(ctx&&ctx->owner)?ctx->owner->name:"NA" );
 
 	return -1;
 }

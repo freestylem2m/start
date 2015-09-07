@@ -40,19 +40,20 @@
 // ********************************************************************************
 //
 
-#ifndef NDEBUG
-
 #ifdef mips
+#ifndef NDEBUG
 char               *config_file = (char *)"/mnt/netmanage.conf";
-#else   // mips
+#else
+char               *config_file = (char *)"/flash/netmanage.conf";
+#endif
+#else
 char               *config_file = (char *)"netmanage.conf";
-#endif  // mips
+#endif
 
+#ifndef NDEBUG
 int                 debug = 0;
 int                 debug_quiet = 0;
 char               *msg_filter = 0L;
-#else   // NDEBUG
-char               *config_file = (char *)"/flash/netmanage.conf";
 #endif  // NDEBUG
 
 const char         *programname = 0L;
@@ -116,7 +117,7 @@ typedef struct _cmdarg
 		} f_ptr;
 
 		// LONG pointer, for arguments which take a number
-		long               *l_ptr;
+		unsigned long               *l_ptr;
 
 		// Generic STRING pointer, for arguments which take a string.  String is a pointer to argv[]. Do not call free()
 		char              **s_ptr;
@@ -300,7 +301,7 @@ int parse_cmdline(int ac, char *av[])
 						FATAL("Too many occurrences for --%s", args[ix]._str);
 					break;
 				case A_LONG:
-					*(args[ix]._vec.l_ptr) = strtol(_v, &_p, 0);
+					*(args[ix]._vec.l_ptr) = strtoul(_v, &_p, 0);
 					if (_p == _v)
 						help(av[0], "Error: Invalid argument specified for %s\n", args[ix]._str);
 					for (sx = 0; _p && *_p && binary_scale[sx].c; sx++) {

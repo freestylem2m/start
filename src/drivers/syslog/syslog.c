@@ -169,6 +169,7 @@ ssize_t syslog_handler(context_t *ctx, event_t event, driver_data_t *event_data)
 				if( !cf->ident )
 					cf->ident = programname;
 			}
+
 		case EVENT_START:
 			openlog( cf->ident, cf->options, cf->facility );
 			break;

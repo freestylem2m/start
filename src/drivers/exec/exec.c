@@ -145,7 +145,10 @@ char *process_command( context_t *ctx, char *cmd, size_t n_cmd, const char *cmdl
 		}
 	}
 
+
 	cmd[ci++] = 0;
+
+	logger(ctx,"Executing cmd: %s",cmd);
 
 	cp = cmd;
 
@@ -245,7 +248,7 @@ int exec_launch( context_t *ctx, int use_tty )
 		fd_in[FD_READ] = fd_out[FD_WRITE] = open("/dev/ptmx", O_RDWR | O_NOCTTY | O_NONBLOCK );
 
 		if( fd_in[FD_READ] < 0 ) {
-			logger(ctx->owner, ctx, "Failed to open a pty to launch %s\n", cmd);
+			logger(ctx, "Failed to open a pty to launch %s\n", cmd);
 
 			FATAL("Failed to open pty - terminating\n");
 			return 1;
@@ -260,7 +263,7 @@ int exec_launch( context_t *ctx, int use_tty )
 		fd_in[FD_WRITE] = fd_out[FD_READ] = open( slave_name, O_RDWR | O_NOCTTY | O_NONBLOCK );
 
 		if( fd_in[FD_WRITE] < 0 ) {
-			logger(ctx->owner, ctx, "Failed to open pty-slave for %s\n",cmd);
+			logger(ctx, "Failed to open pty-slave for %s\n",cmd);
 			close( fd_in[FD_READ] );
 
 			FATAL("Failed to open pty-slave\n");
@@ -429,7 +432,8 @@ ssize_t exec_handler(context_t *ctx, event_t event, driver_data_t *event_data )
 				// Clean up any pre-existing instances
 				int pid = exec_check_pid_file( ctx );
 				if( pid ) {
-					x_printf(ctx,"WARNING Found PID File,  killing process\n");
+					x_printf(ctx,"WARNING: Found PID File,  killing process\n");
+					logger(ctx,"WARNING: Existing process found in PID file. Terminating process (pid = %d)\n",pid);
 					kill( pid, SIGTERM );
 					time_t timeout = rel_time(0L) + 10000;
 					while ( !kill(pid, 0) && ( rel_time(0L) < timeout ) ) {
@@ -564,7 +568,7 @@ ssize_t exec_handler(context_t *ctx, event_t event, driver_data_t *event_data )
 						read_data.event_data.data = read_buffer;
 						read_data.event_data.bytes = (size_t) result;
 
-						if( emit( ctx->owner, EVENT_DATA_INCOMING, &read_data ) != result )
+						if( emit2( ctx, EVENT_DATA_INCOMING, &read_data ) != result )
 							x_printf(ctx,"WARNING: Failed to send all data to %s\n",ctx->owner->name);
 
 					} else

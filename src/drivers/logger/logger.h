@@ -32,5 +32,5 @@ typedef struct logger_config_t {
 extern int logger_init(context_t *);
 extern int logger_shutdown(context_t *);
 extern ssize_t logger_handler(context_t *, event_t event, driver_data_t *event_data);
-extern void logger(context_t *ctx, context_t *source, char *fmt, ...);
+extern void logger(context_t *source, char *fmt, ...);
 #endif

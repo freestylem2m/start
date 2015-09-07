@@ -2,6 +2,9 @@
 #ifndef __DRIVER_CONSOLE_H_
 #define __DRIVER_CONSOLE_H_
 
+#include <termios.h>
+#include <sys/ioctl.h>
+
 #include "driver.h"
 
 #define FD_READ 0
@@ -13,16 +16,13 @@ typedef enum {
 	CONSOLE_STATE_ERROR
 } console_state_t;
 
-typedef enum {
-    CONSOLE_NONE = 0,
-	CONSOLE_TERMINATING = 1,
-} console_flags_t;
+#define CHILD_EVENT_WINSIZE 1
 
 typedef struct console_config_t {
 	console_state_t state;
-	console_flags_t flags;
-	int  fd_in;
-	int  fd_out;
+	struct termios pty_config;
+	struct winsize pty_size;
+	int  pty;
 } console_config_t;
 
 extern int console_init(context_t *);

@@ -41,7 +41,6 @@ typedef struct coordinator_config_t {
 	const char *control_modem;
 	const char *control_vpn;
 
-    context_t *logger;
     context_t *unicorn;
     context_t *network;
     context_t *vpn;

@@ -175,7 +175,7 @@ ssize_t process_unicorn_data( context_t *ctx, size_t ready )
 		driver_data_t notification = { TYPE_DATA, ctx, {} };
 		notification.event_data.bytes = cf->msgHdr.length;
 		notification.event_data.data = data_buffer;
-		emit( ctx->owner, EVENT_DATA_INCOMING, &notification );
+		emit2( ctx, EVENT_DATA_INCOMING, &notification );
 
 		cf->flags &= ~(unsigned int)UNICORN_EXPECTING_DATA;
 		return 0;
@@ -252,7 +252,7 @@ ssize_t unicorn_handler(context_t *ctx, event_t event, driver_data_t *event_data
 				start_service( &cf->modem, cf->driver, ctx->config, ctx, 0L );
 
 			if( !cf->modem ) {
-				logger( ctx->owner, ctx, "Unable to launch modem driver. Exiting\n" );
+				logger( ctx, "Unable to launch modem driver. Exiting\n" );
 				cf->state = UNICORN_STATE_ERROR;
 				context_terminate( ctx );
 				return -1;
@@ -290,6 +290,7 @@ ssize_t unicorn_handler(context_t *ctx, event_t event, driver_data_t *event_data
 		// This event is used to signal that the modem driver needs to resync.
 		// set the 'reconnecting' flag and send a disconnect
 		x_printf(ctx,"EVENT_RESTART: - sending disconnect to modem\n");
+		logger(ctx, "Sending disconnect command to modem driver");
 		if( event_data->source == ctx->owner ) {
 			cf->pending_action_timeout = rel_time(0L);
 			cf->flags |= UNICORN_WAITING_FOR_CONNECT;
@@ -301,7 +302,7 @@ ssize_t unicorn_handler(context_t *ctx, event_t event, driver_data_t *event_data
 			}
 		} else {
 			x_printf(ctx,"Forwarding EVENT_RESTART to owner (%s)\n",ctx->name);
-			emit( ctx->owner, EVENT_RESTART, event_data);
+			emit2( ctx, EVENT_RESTART, event_data);
 		}
 		break;
 
@@ -378,13 +379,16 @@ ssize_t unicorn_handler(context_t *ctx, event_t event, driver_data_t *event_data
 			time_t now = rel_time(0L);
 
 			// Handle case where a massive time shift due to NTP resync causes all timeouts to fire simultaneously
-			if( (now - cf->last_message) > MAXIMUM_SAFE_TIMEDELTA )
+			if( (now - cf->last_message) > MAXIMUM_SAFE_TIMEDELTA ) {
+				logger(ctx, "WARNING: Resetting timeout due to RTC time change");
 				cf->last_message = now;
+			}
 
 			if( (now - cf->last_message) > 300*1000 ) {
-				// Its been a long time since the last keepalive, despite prompting for one
+				// Its been a long time since the last message, despite prompting for one
 				// restart the modem driver
 
+				logger(ctx, "Communications timeout. Restarting modem driver.");
 				uint8_t sig = SIGHUP;
 				driver_data_t notification = { TYPE_CUSTOM, ctx, {} };
 				notification.event_custom = &sig;
@@ -397,14 +401,8 @@ ssize_t unicorn_handler(context_t *ctx, event_t event, driver_data_t *event_data
 
 				// Its been a couple of minutes since the last keepalive, reset the driver_state
 				// to unknown and prompt for one.
+				x_printf(ctx,"Resetting connection state to unknown due to communications timeout.\n");
 				cf->driver_state = CMD_ST_UNKNOWN;
-
-				frmHdr_t frame = {  MAGIC_NUMBER, CMD_STATE, 0, 0 };
-				driver_data_t notification = { TYPE_DATA, ctx, {} };
-				notification.event_data.data = &frame;
-				notification.event_data.bytes = sizeof( frame );
-
-				emit( cf->modem, EVENT_DATA_OUTGOING, &notification );
 				send_unicorn_command( ctx, CMD_STATE, CMD_ST_OFFLINE, 0, 0L );
 			}
 
@@ -423,9 +421,8 @@ ssize_t unicorn_handler(context_t *ctx, event_t event, driver_data_t *event_data
 				x_printf(ctx,"Timeout during connect - terminating modem driver\n");
 				cf->flags &= ~(unsigned int) UNICORN_WAITING_FOR_CONNECT;
 				cf->state = UNICORN_STATE_IDLE;
-				if( cf->modem ) {
+				if( cf->modem )
 					emit( cf->modem, EVENT_TERMINATE, 0L );
-				}
 			}
 
 			if( (cf->flags & UNICORN_TERMINATING) && ((now - cf->pending_action_timeout) > UNICORN_PROCESS_TERMINATION_TIMEOUT)) {

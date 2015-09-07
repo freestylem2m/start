@@ -123,7 +123,7 @@ int config_get_timeval(const config_t *section, const char *item, time_t *pval)
 		const scalefactor *s = time_scale;
 		while( s->c ) {
 			if( s->c == *i )
-				val *= s->scale;
+				val *= (time_t) s->scale;
 			s++;
 		}
 		i++;

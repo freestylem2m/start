@@ -403,7 +403,7 @@ ssize_t sshvpn_handler(context_t *ctx, event_t event, driver_data_t *event_data 
 					for( j = 0; j < 16; j++ ) {
 						if( j+i < p ) {
 							ptr += sprintf(ptr, " %02x", dptr[j+i]);
-							*tptr++ = isprint(dptr[j+i])?dptr[j+i]:'.';
+							*tptr++ = (unsigned char) isprint((int)(dptr[j+i]))?dptr[j+i]:'.';
 						} else {
 							ptr += sprintf(ptr,"   ");
 							*tptr++ = ' ';

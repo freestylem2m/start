@@ -45,7 +45,7 @@
 #include "events.h"
 #include "logger.h"
 
-int logger_init(context_t *context)
+int logger_init(context_t *ctx)
 {
 	logger_config_t *cf;
 
@@ -55,7 +55,7 @@ int logger_init(context_t *context)
 	cf->state = LOGGER_STATE_IDLE;
 	cf->log_fd = -1;
 
-	context->data = cf;
+	ctx->data = cf;
 
 	return 1;
 }
@@ -98,6 +98,7 @@ ssize_t logger_handler(context_t *ctx, event_t event, driver_data_t *event_data 
 					start_service( &cf->logger, cf->log_driver, ctx->config, ctx, 0L );
 			}
 			cf->state = LOGGER_STATE_RUNNING;
+		case EVENT_START:
 			break;
 
 		case EVENT_TERMINATE:
@@ -138,27 +139,4 @@ ssize_t logger_handler(context_t *ctx, event_t event, driver_data_t *event_data 
 			break;
 	}
 	return 0;
-}
-
-void logger(context_t *ctx, context_t *source, char *fmt, ...) {
-	va_list fmt_args;
-	va_start( fmt_args, fmt );
-	char *log_buffer = alloca( LOG_BUFFER_MAX );
-
-	if( fmt ) {
-		vsnprintf( log_buffer, LOG_BUFFER_MAX, fmt, fmt_args );
-		log_buffer[LOG_BUFFER_MAX-1] = 0;
-	}
-	if( ctx ) {
-		driver_data_t event = { TYPE_DATA, .source = source, {} };
-		event.event_data.bytes = strlen(log_buffer);
-		event.event_data.data = log_buffer;
-		emit( ctx, EVENT_LOGGING, &event );
-	} else {
-		time_t spec = time(0L);
-		char spec_buffer[32];
-		x_printf(ctx,"No Logging context, defaulting to stderr\n");
-		fwrite( spec_buffer, strftime(spec_buffer,32,"%b %e %H:%M:%S: ", localtime( &spec )), 1, stderr );
-		fwrite( log_buffer, strlen(log_buffer), 1, stderr );
-	}
 }

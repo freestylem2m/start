@@ -51,5 +51,6 @@ extern int context_terminate( context_t *ctx );
 extern void context_delete(context_t *ctx, const char *name);
 extern context_t *find_context(const char *name);
 extern ssize_t emit( context_t *ctx, event_t event, driver_data_t *event_data );
+extern ssize_t emit2( context_t *ctx, event_t event, driver_data_t *event_data );
 
 #endif
