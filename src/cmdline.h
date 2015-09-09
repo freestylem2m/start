@@ -51,6 +51,7 @@ extern int          debug_quiet;
 extern char        *msg_filter;
 #endif
 
-extern int          __fatal(const char *func, int line, const char *fmt, ...);
+extern int          __fatal(const char *func, int line, const char *fmt, ...) __attribute__((format(printf,3,4)));
+//extern int          __fatal(const char *func, int line, const char *fmt, ...);
 
 #endif
