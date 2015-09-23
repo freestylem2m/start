@@ -4,6 +4,7 @@ import os
 import fnmatch
 
 top = Dir('#').path
+home = os.environ["HOME"]
 
 debug = ARGUMENTS.get('debug','0')
 platform = ARGUMENTS.get('platform', 'i386')
@@ -18,16 +19,16 @@ include_path = [
 libs = [ ]
 
 hvc_inc = [
-        '/home/freestyle/git/FreestyleRalinkSDK/RT288x_SDK/source/lib/libnvram',
-        '/home/freestyle/git/FMEBuild/src/platform/hvc-50x/libHVC',
+        os.path.join( home, 'git/FreestyleRalinkSDK/RT288x_SDK/source/lib/libnvram' ),
+        os.path.join( home, 'git/FMEBuild/src/platform/hvc-50x/libHVC' ),
         ]
 
 hvc_objs = [
-        '/home/freestyle/git/FMEBuild/src/platform/hvc-50x/libHVC/libHVC.o',
+        os.path.join( home, 'git/FMEBuild/src/platform/hvc-50x/libHVC/libHVC.o' ),
         ]
 
 hvc_libpath = [
-        '-L/home/freestyle/git/FreestyleRalinkSDK/RT288x_SDK/source/lib/libnvram',
+        '-L' + os.path.join( home, 'git/FreestyleRalinkSDK/RT288x_SDK/source/lib/libnvram' ),
         ]
 hvc_libs = [
         '-lnvram',
@@ -104,7 +105,7 @@ target = build_config.Program( netmanage_binary, source = [ main_source, additio
 
 
 if platform == 'hvc-50x':
-    dest_dir = '/home/freestyle/fme'
+    dest_dir = os.path.join( home, 'fme' )
     build_publish = Command( os.path.join(dest_dir, 'netmanage'), netmanage_binary, Copy("$TARGET","$SOURCE"))
     Depends(build_publish, target)
     Default(build_publish, target)
