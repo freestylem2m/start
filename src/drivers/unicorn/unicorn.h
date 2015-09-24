@@ -41,6 +41,8 @@
 #define FD_READ 0
 #define FD_WRITE 1
 
+#define KEEPALIVE_INCLUDES_OUTGOING
+
 // ** Host Command Interface for Modem management software
 
 #define SIZE_BUFF_FRAME         1024
@@ -83,13 +85,17 @@ typedef struct frmHdr_s
 } __attribute__((packed)) frmHdr_t;
 
 // If modem driver takes more than this many seconds, kill it.
-#define UNICORN_PROCESS_TERMINATION_TIMEOUT 10*1000
-#define UNICORN_CONNECT_TIMEOUT 120*1000
-#define UNICORN_RESTART_DELAY   120*1000
+#define UNICORN_PROCESS_TERMINATION_TIMEOUT	10*1000
+#define UNICORN_CONNECT_TIMEOUT				120*1000
+#define UNICORN_RESTART_DELAY				120*1000
+#define UNICORN_CALLBARRING_DELAY			12*60*1000
+#define UNICORN_SHADOWZONE_DELAY			120*1000
+#define UNICORN_KEEPALIVE_TIMEOUT			120*1000
+#define UNICORN_KEEPALIVE_RETRY_MAX         2
 
-// After reading a header, if the data frame takes longer than this many seconds
-// reset.
-#define FRAME_TIMEOUT 1
+// After reading a header, if the data frame takes longer than this many
+// milliseconds, reset state and clear buffer.
+#define FRAME_TIMEOUT						1000
 
 // ** Driver State
 
@@ -119,6 +125,7 @@ typedef enum {
 	UNICORN_DISABLE = 128,
 	UNICORN_TERMINATING = 256,
 	UNICORN_FIRST_START = 512,
+	UNICORN_LAGGED = 1024,
 } unicorn_flags_t;
 
 typedef struct unicorn_config_t {
@@ -129,6 +136,7 @@ typedef struct unicorn_config_t {
 	time_t last_message;
 	time_t pending_action_timeout;
 	time_t retry_time;
+	time_t retry_count;
 
 	const char *driver;
 	const char *pid_file;

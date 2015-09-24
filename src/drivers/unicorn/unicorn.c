@@ -90,6 +90,9 @@ ssize_t send_unicorn_command( context_t *ctx, cmdHost_t cmd, cmdState_t state, s
 	notification.event_data.data = frame;
 	notification.event_data.bytes = sizeof( frmHdr_t ) + length;
 
+#ifdef KEEPALIVE_INCLUDES_OUTGOING
+	cf->last_message = rel_time(0L);
+#endif
 	return emit( cf->modem, EVENT_DATA_OUTGOING, &notification );
 }
 
@@ -105,6 +108,8 @@ ssize_t process_unicorn_header( context_t *ctx )
 			cf->driver_state = CMD_ST_UNKNOWN;
 		case CMD_KEEPALIVE:
 		case CMD_STATE:
+			cf->flags &= ~(unsigned int)UNICORN_LAGGED;
+
 			if( cf->msgHdr.state != cf->driver_state ) {
 
 				if( cf->msgHdr.state == CMD_ST_ONLINE || cf->msgHdr.state == CMD_ST_OFFLINE || cf->msgHdr.state == CMD_ST_ERROR ) {
@@ -379,31 +384,37 @@ ssize_t unicorn_handler(context_t *ctx, event_t event, driver_data_t *event_data
 			time_t now = rel_time(0L);
 
 			// Handle case where a massive time shift due to NTP resync causes all timeouts to fire simultaneously
+			// This is technically deprecated due to the use of rel_time()
 			if( (now - cf->last_message) > MAXIMUM_SAFE_TIMEDELTA ) {
 				logger(ctx, "WARNING: Resetting timeout due to RTC time change");
 				cf->last_message = now;
 			}
 
-			if( (now - cf->last_message) > 300*1000 ) {
-				// Its been a long time since the last message, despite prompting for one
-				// restart the modem driver
+			if( ((now - cf->last_message) > UNICORN_KEEPALIVE_TIMEOUT ) && ( cf->driver_state != CMD_ST_UNKNOWN )) {
 
-				logger(ctx, "Communications timeout. Restarting modem driver.");
-				uint8_t sig = SIGHUP;
-				driver_data_t notification = { TYPE_CUSTOM, ctx, {} };
-				notification.event_custom = &sig;
+				if( ! cf->flags & UNICORN_LAGGED ) {
+					// Its been a couple of minutes since the last keepalive, reset the driver_state
+					// to unknown and prompt for one.
+					logger(ctx,"Forcing connection state request due to communications timeout.\n");
+					cf->flags |= UNICORN_LAGGED;
+					cf->retry_count = UNICORN_KEEPALIVE_RETRY_MAX;
+				}
 
-				emit( cf->modem, EVENT_RESTART, &notification );
+				if( cf->retry_count ) {
+					send_unicorn_command( ctx, CMD_STATE, CMD_ST_OFFLINE, 0, 0L );
+					cf->retry_count --;
+				} else {
+					// Its been a long time since the last message, despite prompting for one
+					// restart the modem driver
+
+					logger(ctx, "Communications timeout. Restarting modem driver.");
+					uint8_t sig = SIGHUP;
+					driver_data_t notification = { TYPE_CUSTOM, ctx, {} };
+					notification.event_custom = &sig;
+
+					emit( cf->modem, EVENT_RESTART, &notification );
+				}
 				cf->last_message = now;
-			}
-
-			if( ((now - cf->last_message) > 120*1000 ) && ( cf->driver_state != CMD_ST_UNKNOWN )) {
-
-				// Its been a couple of minutes since the last keepalive, reset the driver_state
-				// to unknown and prompt for one.
-				x_printf(ctx,"Resetting connection state to unknown due to communications timeout.\n");
-				cf->driver_state = CMD_ST_UNKNOWN;
-				send_unicorn_command( ctx, CMD_STATE, CMD_ST_OFFLINE, 0, 0L );
 			}
 
 			if( (cf->flags & UNICORN_RESTARTING) && ((now - cf->pending_action_timeout) > UNICORN_RESTART_DELAY )) {
@@ -446,7 +457,6 @@ ssize_t unicorn_handler(context_t *ctx, event_t event, driver_data_t *event_data
 			if( bytes )
 				x_printf(ctx,"Un-processed data in ring buffer... %d bytes\n",bytes);
 #endif
-
 		}
 		break;
 
