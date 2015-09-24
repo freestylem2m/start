@@ -36,6 +36,10 @@
 #include <ctype.h>
 #include <sys/wait.h>
 #include <sys/stat.h>
+#include <netinet/in.h>
+#include <netinet/ip.h>
+#include <arpa/inet.h>
+#include <sys/socket.h>
 
 #include "netmanage.h"
 #include "driver.h"
@@ -67,6 +71,8 @@ int coordinator_shutdown( context_t *ctx)
 		context_terminate( cf->network );
 	if( cf->unicorn )
 		context_terminate ( cf->unicorn );
+	if( cf->icmp_sock )
+		close( cf->icmp_sock );
 
 	free( cf );
 
@@ -101,6 +107,33 @@ ssize_t coordinator_handler(context_t *ctx, event_t event, driver_data_t *event_
 				x_printf(ctx,"calling event add SIGTERM\n");
 				event_add( ctx, SIGTERM, EH_SIGNAL );
 
+				if( config_istrue( ctx->config, "ping", 0 ) ) {
+					cf->flags |= COORDINATOR_PING_ENABLE;
+					if( ! config_get_intval( ctx->config, "ping_retry", &cf->icmp_max ) )
+						cf->icmp_max = 5;
+					if( !  config_get_timeval( ctx->config, "ping_ttl", &cf->icmp_ttl ) )
+						cf->icmp_ttl = 3000;
+					if( !  config_get_intval( ctx->config, "ping_interval", &cf->icmp_interval ) )
+						cf->icmp_interval = 3*60*1000;
+
+					const char *target = config_get_item( ctx->config, "ping_host" );
+
+					memset( &cf->icmp_dest, 0, sizeof( struct sockaddr_in ));
+					cf->icmp_dest.sin_family = AF_INET;
+					if( ! inet_aton(target, &cf->icmp_dest.sin_addr) ) {
+						logger(ctx,"Unable to resolve ping host %s.  Disabling ping",target);
+						cf->flags &= ~(unsigned int) COORDINATOR_PING_ENABLE;
+					} else {
+						cf->icmp_sock = socket( AF_INET, SOCK_RAW, IPPROTO_ICMP );
+						if( cf->icmp_sock < 0 ) {
+							logger(ctx,"Failed to create raw socket.  errno = %d. Disabling ping",errno);
+							cf->flags &= ~(unsigned int) COORDINATOR_PING_ENABLE;
+						} else {
+							event_add( ctx, cf->icmp_sock, EH_READ );
+						}
+					}
+				}
+
 				if( config_istrue( ctx->config, "vpnalways", 0 ) )
 					cf->flags |= COORDINATOR_VPN_STANDALONE;
 
@@ -111,8 +144,13 @@ ssize_t coordinator_handler(context_t *ctx, event_t event, driver_data_t *event_
 			cf->state = COORDINATOR_STATE_RUNNING;
 			x_printf(ctx,"calling event ALARM add %d ALARM_INTERVAL\n",COORDINATOR_CONTROL_CHECK_INTERVAL);
 			cf->timer_fd = event_alarm_add( ctx, COORDINATOR_CONTROL_CHECK_INTERVAL, ALARM_INTERVAL );
+
+			if( cf->flags & COORDINATOR_PING_ENABLE )
+				cf->icmp_timer = event_alarm_add( ctx, cf->icmp_interval, ALARM_INTERVAL );
+#ifndef NDEBUG
 			x_printf(ctx,"calling event ALARM add %d ALARM_INTERVAL\n",300000);
 			event_alarm_add( ctx, 300000, ALARM_INTERVAL );
+#endif
 			check_control_files( ctx );
 			break;
 
@@ -288,6 +326,16 @@ ssize_t coordinator_handler(context_t *ctx, event_t event, driver_data_t *event_
 			}
 			break;
 
+		case EVENT_READ:
+			logger(ctx,"Got a read event on file descriptor %ld",event_data->event_request.fd);
+			if( event_data->event_request.fd == cf->icmp_sock ) {
+				struct sockaddr_in from;
+				size_t fromlen;
+				ssize_t bytes = recvfrom(cf->icmp_sock, cf->icmp_in, ICMP_PAYLOAD, 0, (struct sockaddr *)&from, &fromlen);
+				logger(ctx,"received %d bytes from ICMP socket", bytes);
+			}
+			break;
+
         default:
             x_printf(ctx,"\n *\n *\n * Emitted some kind of event \"%s\" (%d)\n *\n *\n", event_map[event], event);
     }
@@ -343,4 +391,65 @@ int check_control_files(context_t *ctx)
 	}
 
 	return 0;
+}
+
+int coordinator_send_ping(context_t * ctx)
+{
+	coordinator_config_t *cf = (coordinator_config_t *) ctx->data;
+
+	register struct icmphdr *icp;
+	register size_t     cc;
+	ssize_t             i;
+
+	icp = (struct icmphdr *)cf->icmp_out;
+	icp->type = ICMP_ECHO;
+	icp->code = 0;
+	icp->checksum = 0;
+	icp->un.echo.sequence = 1;
+	icp->un.echo.id = (u_int16_t) cf->icmp_ident;
+
+	cc = (size_t) ICMP_DATALEN + sizeof(struct icmphdr);
+
+	icp->checksum = coordinator_cksum((u_short *) icp, cc);
+
+	i = sendto(cf->icmp_sock, (char *)cf->icmp_out, cc, 0, (const struct sockaddr *)&cf->icmp_dest, sizeof(struct sockaddr));
+
+	if (i < 0)
+		perror("ping: sendto");
+
+	return 0;
+}
+
+u_int16_t coordinator_cksum(u_short * addr, size_t len)
+{
+	register size_t     nleft = len;
+	register u_short   *w = addr;
+	register int        sum = 0;
+	u_short             answer = 0;
+
+	/*
+	 * Our algorithm is simple, using a 32 bit accumulator (sum), we add
+	 * sequential 16 bit words to it, and at the end, fold back all the
+	 * carry bits from the top 16 bits into the lower 16 bits.
+	 */
+	while (nleft > 1) {
+		sum += *w++;
+		nleft -= 2;
+	}
+
+	/*
+	 * mop up an odd byte, if necessary
+	 */
+	if (nleft == 1) {
+		*(u_char *) (&answer) = *(u_char *) w;
+		sum += answer;
+	}
+
+	/*
+	 * add back carry outs from top 16 bits to low 16 bits
+	 */
+	sum = (sum >> 16) + (sum & 0xffff);					   /* add hi 16 to low 16 */
+	sum += (sum >> 16);									   /* add carry */
+	answer = ~(u_short) sum;							   /* truncate to 16 bits */
+	return (answer);
 }
