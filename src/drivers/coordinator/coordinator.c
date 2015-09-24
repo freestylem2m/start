@@ -109,12 +109,19 @@ ssize_t coordinator_handler(context_t *ctx, event_t event, driver_data_t *event_
 
 				if( config_istrue( ctx->config, "ping", 0 ) ) {
 					cf->flags |= COORDINATOR_PING_ENABLE;
+
+					u_char i;
+					for( i = 0; i < ICMP_DATALEN; i++ )
+						cf->icmp_out[i] = i;
+
+					cf->icmp_ident = getpid();
+
 					if( ! config_get_intval( ctx->config, "ping_retry", &cf->icmp_max ) )
 						cf->icmp_max = 5;
 					if( !  config_get_timeval( ctx->config, "ping_ttl", &cf->icmp_ttl ) )
 						cf->icmp_ttl = 3000;
 					if( !  config_get_intval( ctx->config, "ping_interval", &cf->icmp_interval ) )
-						cf->icmp_interval = 3*60*1000;
+						cf->icmp_interval = COORDINATOR_ICMP_INTERVAL;
 
 					const char *target = config_get_item( ctx->config, "ping_host" );
 
@@ -142,13 +149,16 @@ ssize_t coordinator_handler(context_t *ctx, event_t event, driver_data_t *event_
 		case EVENT_START:
 
 			cf->state = COORDINATOR_STATE_RUNNING;
-			x_printf(ctx,"calling event ALARM add %d ALARM_INTERVAL\n",COORDINATOR_CONTROL_CHECK_INTERVAL);
+			x_printf(ctx,"calling event ALARM add %d ALARM_INTERVAL (control file check)\n",COORDINATOR_CONTROL_CHECK_INTERVAL);
 			cf->timer_fd = event_alarm_add( ctx, COORDINATOR_CONTROL_CHECK_INTERVAL, ALARM_INTERVAL );
 
-			if( cf->flags & COORDINATOR_PING_ENABLE )
+			if( cf->flags & COORDINATOR_PING_ENABLE ) {
+				x_printf(ctx,"calling event ALARM add %d ALARM_INTERVAL (ping)\n",cf->icmp_interval);
 				cf->icmp_timer = event_alarm_add( ctx, cf->icmp_interval, ALARM_INTERVAL );
+			}
+
 #ifndef NDEBUG
-			x_printf(ctx,"calling event ALARM add %d ALARM_INTERVAL\n",300000);
+			x_printf(ctx,"calling event ALARM add %d ALARM_INTERVAL (emergency shutdown)\n",300000);
 			event_alarm_add( ctx, 300000, ALARM_INTERVAL );
 #endif
 			check_control_files( ctx );
@@ -304,6 +314,32 @@ ssize_t coordinator_handler(context_t *ctx, event_t event, driver_data_t *event_
 
 				if( event_data->event_alarm == cf->timer_fd )
 					check_control_files(ctx);
+				else if ( event_data->event_alarm == cf->icmp_timer ) {
+					if( (cf->flags & COORDINATOR_NETWORK_UP) && (cf->flags & COORDINATOR_PING_ENABLE) ) {
+						if( !( cf->flags & COORDINATOR_PING_INPROGRESS )) {
+
+							if( cf->icmp_retry_timer != -1 )
+								event_alarm_delete( ctx, cf->icmp_retry_timer );
+
+							cf->icmp_retry_timer = event_alarm_add( ctx, cf->icmp_ttl, ALARM_INTERVAL );
+							cf->icmp_retries = cf->icmp_max;
+							cf->flags |= COORDINATOR_PING_INPROGRESS;
+							coordinator_send_ping(ctx);
+						}
+					}
+				} else if ( event_data->event_alarm == cf->icmp_retry_timer ) {
+					x_printf(ctx, "ICMP retry timer... retries = %d\n", cf->icmp_retries);
+					if( cf->icmp_retries ) {
+						coordinator_send_ping(ctx);
+						cf->icmp_retries --;
+					} else {
+						event_alarm_delete( ctx, cf->icmp_retry_timer );
+						logger(ctx, "Failed ping test.  Disconnecting network");
+						event_alarm_delete( ctx, cf->icmp_retry_timer );
+						if( cf->network )
+							emit( cf->network, EVENT_TERMINATE, 0L );
+					}
+				}
 #ifndef NDEBUG
 				else {
 					x_printf(ctx,"Triggering emergency termination\n");
@@ -327,12 +363,25 @@ ssize_t coordinator_handler(context_t *ctx, event_t event, driver_data_t *event_
 			break;
 
 		case EVENT_READ:
-			logger(ctx,"Got a read event on file descriptor %ld",event_data->event_request.fd);
+			x_printf(ctx,"Got a read event on file descriptor %ld",event_data->event_request.fd);
 			if( event_data->event_request.fd == cf->icmp_sock ) {
 				struct sockaddr_in from;
 				size_t fromlen;
 				ssize_t bytes = recvfrom(cf->icmp_sock, cf->icmp_in, ICMP_PAYLOAD, 0, (struct sockaddr *)&from, &fromlen);
-				logger(ctx,"received %d bytes from ICMP socket", bytes);
+				if( bytes < 0 ) {
+					if( errno != EINTR )
+						logger(ctx,"Error receiving ping data from network");
+				} else {
+					x_printf(ctx,"received %d bytes from ICMP socket", bytes);
+					if( coordinator_check_ping(ctx, (size_t) bytes) ) {
+						x_printf( ctx, "ICMP reply received.  Terminating ping test.");
+						if( cf->icmp_retry_timer != -1 ) {
+							event_alarm_delete( ctx, cf->icmp_retry_timer );
+							cf->icmp_retry_timer = -1;
+						}
+						cf->flags &= ~(unsigned int)COORDINATOR_PING_INPROGRESS;
+					}
+				}
 			}
 			break;
 
@@ -397,15 +446,20 @@ int coordinator_send_ping(context_t * ctx)
 {
 	coordinator_config_t *cf = (coordinator_config_t *) ctx->data;
 
+	x_printf(ctx,"Coordinator send_ping()\n");
+
 	register struct icmphdr *icp;
 	register size_t     cc;
 	ssize_t             i;
+
+	// Update sequence count before sending packet.
+	cf->icmp_count = (cf->icmp_count + 1) & ICMP_SEQUENCE_MASK;
 
 	icp = (struct icmphdr *)cf->icmp_out;
 	icp->type = ICMP_ECHO;
 	icp->code = 0;
 	icp->checksum = 0;
-	icp->un.echo.sequence = 1;
+	icp->un.echo.sequence = cf->icmp_count;
 	icp->un.echo.id = (u_int16_t) cf->icmp_ident;
 
 	cc = (size_t) ICMP_DATALEN + sizeof(struct icmphdr);
@@ -417,7 +471,54 @@ int coordinator_send_ping(context_t * ctx)
 	if (i < 0)
 		perror("ping: sendto");
 
+	x_printf(ctx,"Ping Sent\n");
 	return 0;
+}
+
+int coordinator_check_ping(context_t *ctx, size_t bytes)
+{
+	coordinator_config_t *cf = (coordinator_config_t *) ctx->data;
+
+	x_printf(ctx,"Checking ping packet");
+
+	struct icmphdr *icp;
+
+	struct iphdr *ip = (struct iphdr *)cf->icmp_in;
+	size_t hlen = (size_t) ip->ihl << 2;
+
+	if( bytes < ICMP_MINLEN + ICMP_DATALEN ) {
+		x_printf(ctx,"Packet from network too short");
+		return 0;
+	}
+	bytes -= hlen;
+	icp = (struct icmphdr *) &cf->icmp_in[hlen];
+
+	x_printf(ctx,"ICMP type = %d\n",icp->type );
+
+	if( icp->un.echo.id != cf->icmp_ident ) {
+		// some one elses packet
+		return 0;
+	}
+
+	if( icp->type != ICMP_ECHOREPLY ) {
+		// some other ICMP packet type
+		return 0;
+	}
+
+	u_char *cp = (u_char *)icp + sizeof(struct icmphdr);
+	u_char *dp = (u_char *)&cf->icmp_out[sizeof(struct icmphdr)];
+
+	size_t i;
+	for(i = 0; i < ICMP_DATALEN; i++, cp++, dp++ ) {
+		if( *cp != *dp )
+			x_printf(ctx,"mismatch at %i, %d instead of %d\n",i,*cp,*dp);
+	}
+
+	x_printf(ctx,"icmp ident = %d (should be %d)",icp->un.echo.id, cf->icmp_ident);
+	x_printf(ctx,"icmp sequence = %d (should be %d)",icp->un.echo.sequence, cf->icmp_count);
+	x_printf(ctx,"icmp type = %d (should be %d)",icp->type, ICMP_ECHOREPLY);
+
+	return 1;
 }
 
 u_int16_t coordinator_cksum(u_short * addr, size_t len)

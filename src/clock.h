@@ -48,10 +48,11 @@ typedef struct event_timer_s
 
 typedef enum
 {
-	ALARM_UNISED,
+	ALARM_UNUSED = 0,
 	ALARM_TIMER = 1,
 	ALARM_INTERVAL = 2,
 	ALARM_FIRED = 4,
+	ALARM_PAUSED = 8,
 } event_alarm_flags_t;
 
 extern time_t       rel_time(time_t * ptr);

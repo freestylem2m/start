@@ -47,7 +47,7 @@
 #include "driver.h"
 
 #ifndef NDEBUG
-#define EVENT_DEBUG
+//#define EVENT_DEBUG
 #endif
 
 // special secret squirrels..

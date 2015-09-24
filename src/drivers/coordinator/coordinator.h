@@ -12,6 +12,10 @@
 
 #define COORDINATOR_CONTROL_CHECK_INTERVAL  3000
 #define VPN_STARTUP_DELAY  6000
+#define ICMP_SEQUENCE_MASK 0xFFFF
+
+//#define COORDINATOR_ICMP_INTERVAL 3*60*1000
+#define COORDINATOR_ICMP_INTERVAL 10*1000
 
 typedef enum {
 	COORDINATOR_STATE_IDLE,
@@ -54,16 +58,20 @@ typedef struct coordinator_config_t {
 	time_t     vpn_startup_pending;
 
 	/* icmp support */
-	int     icmp_ident;
-	int     icmp_sock;
-	struct sockaddr_in icmp_dest;
+	int     icmp_ident;					// Ping identifier (getpid())
+	int     icmp_sock;					// RAW Socket
+	struct sockaddr_in icmp_dest;		// Remote host
 	u_char  icmp_out[ICMP_DATALEN+sizeof(struct icmphdr)];
 	u_char  icmp_in[ICMP_PAYLOAD];
 
-	int     icmp_max;
-	time_t     icmp_ttl;
-	int     icmp_interval;
-	int     icmp_timer;
+	int     icmp_interval;				// Time before ping tests
+	int     icmp_max;					// Maximum retries
+	int     icmp_retries;				// Current retry count
+	time_t  icmp_ttl;					// Time between retries
+	u_int16_t icmp_count;				// Unique ID for each ping packet
+
+	int     icmp_timer;					// Event timer - ping tests
+	int     icmp_retry_timer;			// Event timer - retries
 } coordinator_config_t;
 
 extern int coordinator_init(context_t *);
@@ -71,5 +79,6 @@ extern int coordinator_shutdown(context_t *);
 extern ssize_t coordinator_handler(context_t *, event_t event, driver_data_t *event_data);
 extern int check_control_files(context_t *ctx);
 extern int coordinator_send_ping(context_t *ctx);
+extern int coordinator_check_ping(context_t *ctx, size_t bytes);
 extern u_int16_t coordinator_cksum(u_short *addr, size_t len);
 #endif
