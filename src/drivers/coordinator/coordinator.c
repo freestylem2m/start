@@ -36,6 +36,7 @@
 #include <ctype.h>
 #include <sys/wait.h>
 #include <sys/stat.h>
+#include <net/if.h>
 #include <netinet/in.h>
 #include <netinet/ip.h>
 #include <arpa/inet.h>
@@ -238,13 +239,14 @@ ssize_t coordinator_handler(context_t *ctx, event_t event, driver_data_t *event_
 					case CHILD_STARTED:
 						break;
 					case CHILD_EVENT:
+						cf->flags |= COORDINATOR_NETWORK_UP;
+						x_printf(ctx,"NETWORK STATE CHANGED TO UP\n");
+
 						if( !( cf->flags & COORDINATOR_VPN_STANDALONE )) {
 							cf->flags |= COORDINATOR_VPN_DISABLE;
 							if( cf->vpn )
 								emit( cf->vpn, EVENT_TERMINATE, 0L );
 						}
-						x_printf(ctx,"NETWORK STATE CHANGED TO UP\n");
-						cf->flags |= COORDINATOR_NETWORK_UP;
 
 						break;
 					case CHILD_STOPPED:
@@ -328,8 +330,21 @@ ssize_t coordinator_handler(context_t *ctx, event_t event, driver_data_t *event_
 				strftime(buffer,128,"%T ", localtime(&t));
 				x_printf(ctx,"alarm occurred at %s\n",buffer);
 
-				if( event_data->event_alarm == cf->timer_fd )
+				if( event_data->event_alarm == cf->timer_fd ) {
 					check_control_files(ctx);
+
+					if( cf->flags & COORDINATOR_VPN_STARTING ) {
+						x_printf(ctx,"VPN Starting up soon...\n");
+						time_t now = rel_time(0L);
+						if( (now - cf->vpn_startup_pending) > VPN_STARTUP_DELAY ) {
+							cf->flags &= ~(unsigned int)COORDINATOR_VPN_STARTING;
+							if( ! start_service( &cf->vpn, cf->vpn_driver, ctx->config, ctx, 0L ) ) {
+								x_printf(ctx,"Failed to start VPN.  Disabling - this will cause a retry\n");
+								cf->flags |= COORDINATOR_VPN_DISABLE;
+							}
+						}
+					}
+				}
 				else if ( event_data->event_alarm == cf->icmp_timer ) {
 					if( (cf->flags & COORDINATOR_NETWORK_UP) && (cf->flags & COORDINATOR_PING_ENABLE) ) {
 						if( !( cf->flags & COORDINATOR_PING_INPROGRESS )) {
@@ -355,8 +370,8 @@ ssize_t coordinator_handler(context_t *ctx, event_t event, driver_data_t *event_
 						if( cf->network )
 							emit( cf->network, EVENT_TERMINATE, 0L );
 					}
-#ifdef ENABLE_GETADDRINFO
 				} else if ( event_data->event_alarm == cf->dns_timer ) {
+#ifdef ENABLE_GETADDRINFO
 					if( (cf->flags & COORDINATOR_NETWORK_UP) && (cf->flags & COORDINATOR_DNS_ENABLE) ) {
 						x_printf(ctx,"Attempting DNS resolver check for %s\n",cf->dns_host);
 						struct addrinfo *addrinfo = NULL;
@@ -378,18 +393,6 @@ ssize_t coordinator_handler(context_t *ctx, event_t event, driver_data_t *event_
 					exit(0);
 				}
 #endif
-
-				if( cf->flags & COORDINATOR_VPN_STARTING ) {
-					x_printf(ctx,"VPN Starting up soon...\n");
-					time_t now = rel_time(0L);
-					if( (now - cf->vpn_startup_pending) > VPN_STARTUP_DELAY ) {
-						cf->flags &= ~(unsigned int)COORDINATOR_VPN_STARTING;
-						if( ! start_service( &cf->vpn, cf->vpn_driver, ctx->config, ctx, 0L ) ) {
-							x_printf(ctx,"Failed to start VPN.  Disabling - this will cause a retry\n");
-							cf->flags |= COORDINATOR_VPN_DISABLE;
-						}
-					}
-				}
 			}
 			break;
 
@@ -586,60 +589,6 @@ u_int16_t coordinator_cksum(u_short * addr, size_t len)
 	return (answer);
 }
 
-struct DNS_HEADER
-{
-    unsigned short id; // identification number
- 
-    unsigned char rd :1; // recursion desired
-    unsigned char tc :1; // truncated message
-    unsigned char aa :1; // authoritive answer
-    unsigned char opcode :4; // purpose of message
-    unsigned char qr :1; // query/response flag
- 
-    unsigned char rcode :4; // response code
-    unsigned char cd :1; // checking disabled
-    unsigned char ad :1; // authenticated data
-    unsigned char z :1; // its z! reserved
-    unsigned char ra :1; // recursion available
- 
-    unsigned short q_count; // number of question entries
-    unsigned short ans_count; // number of answer entries
-    unsigned short auth_count; // number of authority entries
-    unsigned short add_count; // number of resource entries
-};
- 
-struct QUESTION
-{
-    unsigned short qtype;
-    unsigned short qclass;
-};
- 
-#pragma pack(push, 1)
-struct R_DATA
-{
-    unsigned short type;
-    unsigned short _class;
-    unsigned int ttl;
-    unsigned short data_len;
-};
-#pragma pack(pop)
- 
-struct RES_RECORD
-{
-    unsigned char *name;
-    struct R_DATA *resource;
-    unsigned char *rdata;
-};
- 
-typedef struct
-{
-    unsigned char *name;
-    struct QUESTION *ques;
-} QUERY;
- 
-/*
- * Perform a DNS query by sending a packet
- * */
 int coordinator_resolve_host(context_t *ctx, char *host )
 {
 	coordinator_config_t *cf = (coordinator_config_t *) ctx->data;
@@ -652,8 +601,6 @@ int coordinator_resolve_host(context_t *ctx, char *host )
     struct DNS_HEADER *dns = NULL;
     struct QUESTION *qinfo = NULL;
  
-    printf("Resolving %s" , host);
- 
     int s = socket(AF_INET , SOCK_DGRAM , IPPROTO_UDP);
  
     dest.sin_family = AF_INET;
@@ -662,7 +609,7 @@ int coordinator_resolve_host(context_t *ctx, char *host )
  
     dns = (struct DNS_HEADER *)&buf;
  
-    dns->id = (unsigned short) htons(getpid());
+    dns->id = htons( (unsigned short) getpid());
     dns->qr = 0; //This is a query
     dns->opcode = 0; //This is a standard query
     dns->aa = 0; //Not Authoritative
@@ -707,34 +654,36 @@ int coordinator_resolve_host(context_t *ctx, char *host )
     //move ahead of the dns header and the query field
     reader = &buf[sizeof(struct DNS_HEADER) + (strlen((const char*)qname)+1) + sizeof(struct QUESTION)];
  
-    printf("\n %d Answers\n",ntohs(dns->ans_count));
-    return 1;
+    return dns->ans_count;
 }
  
 int coordinator_load_dns( context_t *ctx )
 {
 	coordinator_config_t *cf = (coordinator_config_t *) ctx->data;
 
-    FILE *fp;
-    char line[200] , *p;
-    if((fp = fopen("/etc/resolv.conf" , "r")) == NULL) {
-        printf("Failed opening /etc/resolv.conf file \n");
-    }
-     
-    while(fgets(line , 200 , fp)) {
-        if(line[0] == '#')
-            continue;
-        if(strncmp(line , "nameserver" , 10) == 0) {
-            p = strtok(line , " ");
-            p = strtok(NULL , " ");
+	FILE *fp;
+	char line[200] , *p;
+	if((fp = fopen("/etc/resolv.conf" , "r")) == NULL) {
+		logger(ctx, "Failed to open /etc/resolv.conf file");
+		return 0;
+	}
+
+	while(fgets(line , 200 , fp)) {
+		if(line[0] == '#')
+			continue;
+		if(strncmp(line , "nameserver" , 10) == 0) {
+			p = strtok(line , " ");
+			p = strtok(NULL , " ");
+			x_printf(ctx,"Loaded DNS Server %s\n",p);
 			strcpy(cf->dns_servers[cf->dns_max_servers++], p );
-        }
-    }
+		}
+	}
+	fclose( fp );
 
 	return 1;
 }
  
-void coordinator_dnsformat(context_t *ctx, unsigned char* dns,unsigned char* host) 
+void coordinator_dnsformat(context_t *ctx, unsigned char* dns,char* host)
 {
     unsigned int lock = 0 , i;
     strcat((char*)host,".");
