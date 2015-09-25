@@ -14,8 +14,7 @@
 #define VPN_STARTUP_DELAY  6000
 #define ICMP_SEQUENCE_MASK 0xFFFF
 
-//#define COORDINATOR_ICMP_INTERVAL 3*60*1000
-#define COORDINATOR_ICMP_INTERVAL 10*1000
+#define COORDINATOR_ICMP_INTERVAL 3*60*1000
 
 typedef enum {
 	COORDINATOR_STATE_IDLE,
@@ -37,6 +36,7 @@ typedef enum {
 	COORDINATOR_VPN_STARTING    = 256,
 	COORDINATOR_PING_ENABLE     = 512,
 	COORDINATOR_PING_INPROGRESS = 1024,
+	COORDINATOR_DNS_ENABLE      = 2048,
 } coordinator_flags_t;
 
 typedef struct coordinator_config_t {
@@ -64,14 +64,23 @@ typedef struct coordinator_config_t {
 	u_char  icmp_out[ICMP_DATALEN+sizeof(struct icmphdr)];
 	u_char  icmp_in[ICMP_PAYLOAD];
 
-	int     icmp_interval;				// Time before ping tests
+	time_t  icmp_interval;				// Time between ping tests
+	time_t  icmp_ttl;					// Time between retries
 	int     icmp_max;					// Maximum retries
 	int     icmp_retries;				// Current retry count
-	time_t  icmp_ttl;					// Time between retries
 	u_int16_t icmp_count;				// Unique ID for each ping packet
 
 	int     icmp_timer;					// Event timer - ping tests
 	int     icmp_retry_timer;			// Event timer - retries
+
+	/* dns support */
+	char    dns_servers[10][32];		// List of DNS servers
+	int     dns_max_servers;			// Number of DNS server addresses loaded
+	int		dns_current;                // Index of current server
+
+	const char *dns_host;				// Hostname to use for DNS test
+	time_t  dns_interval;				// Time between DNS tests
+	int     dns_timer;					// Event timer - dns tests
 } coordinator_config_t;
 
 extern int coordinator_init(context_t *);
@@ -81,4 +90,7 @@ extern int check_control_files(context_t *ctx);
 extern int coordinator_send_ping(context_t *ctx);
 extern int coordinator_check_ping(context_t *ctx, size_t bytes);
 extern u_int16_t coordinator_cksum(u_short *addr, size_t len);
+extern int coordinator_resolve_host(context_t *,char*);
+extern void coordinator_dnsformat(context_t *,unsigned char*,unsigned char*);
+extern int coordinator_load_dns(context_t *);
 #endif

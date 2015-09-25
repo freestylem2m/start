@@ -73,6 +73,7 @@ typedef enum cmdState_e
     CMD_ST_INPROGRESS,
     CMD_ST_ONLINE,
     CMD_ST_UNKNOWN = 0xFFFF
+
 } cmdState_t;
 
 typedef struct frmHdr_s
@@ -100,22 +101,27 @@ typedef struct frmHdr_s
 // ** Driver State
 
 typedef enum {
+
 	UNICORN_STATE_IDLE,
 	UNICORN_STATE_RUNNING,
 	UNICORN_STATE_STOPPING,
 	UNICORN_STATE_ERROR,
+
 } unicorn_state_t;
 
 typedef enum {
+
 	// These are states sent to the parent.
 	UNICORN_MODE_UNKNOWN,
 	UNICORN_MODE_OFFLINE,
 	UNICORN_MODE_ONLINE,
+
 } unicorn_mode_t;
 
 typedef enum {
+
 	UNICORN_NONE = 0,
-	UNICORN_ONLINE = 1,
+	UNICORN_ONLINE = 1,					// Set when modem driver reports online status
 	UNICORN_EXPECTING_DATA = 2,
 	UNICORN_CLOSING_CONNECTION = 4,
 	UNICORD_UNEXPECTED_EXIT = 8,
@@ -126,11 +132,29 @@ typedef enum {
 	UNICORN_TERMINATING = 256,
 	UNICORN_FIRST_START = 512,
 	UNICORN_LAGGED = 1024,
+
 } unicorn_flags_t;
 
+typedef enum {
+
+	UNICORN_RESULT_UNKNOWN,
+	UNICORN_RESULT_OK,
+	UNICORN_RESULT_CPIN_ERR,
+	UNICORN_RESULT_NO_SERVICE,
+	UNICORN_RESULT_CALL_BARRED,
+	UNICORN_RESULT_DIAL_ERR,
+	UNICORN_RESULT_CD_LOST,
+	UNICORN_RESULT_RST_ERROR,
+	UNICORN_RESULT_MDM_ERROR,
+
+} unicorn_result_t;
+
 typedef struct unicorn_config_t {
+
 	unicorn_state_t state;
 	unicorn_flags_t flags;
+	unicorn_result_t result;
+
 	context_t *modem;
 	u_ringbuf_t input;
 	time_t last_message;
@@ -147,6 +171,7 @@ typedef struct unicorn_config_t {
 
     // Find these services..
     context_t *logger;
+
 } unicorn_config_t;
 
 extern int unicorn_init(context_t *);

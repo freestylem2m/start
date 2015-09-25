@@ -40,6 +40,7 @@
 #include <netinet/ip.h>
 #include <arpa/inet.h>
 #include <sys/socket.h>
+#include <netdb.h>
 
 #include "netmanage.h"
 #include "driver.h"
@@ -120,7 +121,7 @@ ssize_t coordinator_handler(context_t *ctx, event_t event, driver_data_t *event_
 						cf->icmp_max = 5;
 					if( !  config_get_timeval( ctx->config, "ping_ttl", &cf->icmp_ttl ) )
 						cf->icmp_ttl = 3000;
-					if( !  config_get_intval( ctx->config, "ping_interval", &cf->icmp_interval ) )
+					if( !  config_get_timeval( ctx->config, "ping_interval", &cf->icmp_interval ) )
 						cf->icmp_interval = COORDINATOR_ICMP_INTERVAL;
 
 					const char *target = config_get_item( ctx->config, "ping_host" );
@@ -141,6 +142,16 @@ ssize_t coordinator_handler(context_t *ctx, event_t event, driver_data_t *event_
 					}
 				}
 
+				if( config_istrue( ctx->config, "dns", 0 ) ) {
+					if( !  config_get_timeval( ctx->config, "dns_interval", &cf->dns_interval ) )
+						cf->dns_interval = 3000;
+					const char *target = config_get_item( ctx->config, "dns_host" );
+					if( target ) {
+						cf->dns_host = target;
+						cf->flags |= COORDINATOR_DNS_ENABLE;
+					}
+				}
+
 				if( config_istrue( ctx->config, "vpnalways", 0 ) )
 					cf->flags |= COORDINATOR_VPN_STANDALONE;
 
@@ -153,8 +164,13 @@ ssize_t coordinator_handler(context_t *ctx, event_t event, driver_data_t *event_
 			cf->timer_fd = event_alarm_add( ctx, COORDINATOR_CONTROL_CHECK_INTERVAL, ALARM_INTERVAL );
 
 			if( cf->flags & COORDINATOR_PING_ENABLE ) {
-				x_printf(ctx,"calling event ALARM add %d ALARM_INTERVAL (ping)\n",cf->icmp_interval);
+				x_printf(ctx,"calling event ALARM add %ld ALARM_INTERVAL (ping)\n",cf->icmp_interval);
 				cf->icmp_timer = event_alarm_add( ctx, cf->icmp_interval, ALARM_INTERVAL );
+			}
+
+			if( cf->flags & COORDINATOR_DNS_ENABLE ) {
+				x_printf(ctx,"calling event ALARM add %ld ALARM_INTERVAL (ping)\n",cf->dns_interval);
+				cf->dns_timer = event_alarm_add( ctx, cf->dns_interval, ALARM_INTERVAL );
 			}
 
 #ifndef NDEBUG
@@ -339,6 +355,21 @@ ssize_t coordinator_handler(context_t *ctx, event_t event, driver_data_t *event_
 						if( cf->network )
 							emit( cf->network, EVENT_TERMINATE, 0L );
 					}
+#ifdef ENABLE_GETADDRINFO
+				} else if ( event_data->event_alarm == cf->dns_timer ) {
+					if( (cf->flags & COORDINATOR_NETWORK_UP) && (cf->flags & COORDINATOR_DNS_ENABLE) ) {
+						x_printf(ctx,"Attempting DNS resolver check for %s\n",cf->dns_host);
+						struct addrinfo *addrinfo = NULL;
+						int rc = getaddrinfo( cf->dns_host, NULL, NULL, &addrinfo );
+						if( rc == 0 ) {
+							x_printf(ctx,"Name resolver completed..\n");
+							freeaddrinfo( addrinfo );
+						} else {
+							x_printf(ctx,"Failure performing DNS name resolution.   Disconnecting network\n");
+							logger(ctx,"Failure performing DNS name resolution.   Disconnecting network");
+						}
+					}
+#endif
 				}
 #ifndef NDEBUG
 				else {
@@ -553,4 +584,170 @@ u_int16_t coordinator_cksum(u_short * addr, size_t len)
 	sum += (sum >> 16);									   /* add carry */
 	answer = ~(u_short) sum;							   /* truncate to 16 bits */
 	return (answer);
+}
+
+struct DNS_HEADER
+{
+    unsigned short id; // identification number
+ 
+    unsigned char rd :1; // recursion desired
+    unsigned char tc :1; // truncated message
+    unsigned char aa :1; // authoritive answer
+    unsigned char opcode :4; // purpose of message
+    unsigned char qr :1; // query/response flag
+ 
+    unsigned char rcode :4; // response code
+    unsigned char cd :1; // checking disabled
+    unsigned char ad :1; // authenticated data
+    unsigned char z :1; // its z! reserved
+    unsigned char ra :1; // recursion available
+ 
+    unsigned short q_count; // number of question entries
+    unsigned short ans_count; // number of answer entries
+    unsigned short auth_count; // number of authority entries
+    unsigned short add_count; // number of resource entries
+};
+ 
+struct QUESTION
+{
+    unsigned short qtype;
+    unsigned short qclass;
+};
+ 
+#pragma pack(push, 1)
+struct R_DATA
+{
+    unsigned short type;
+    unsigned short _class;
+    unsigned int ttl;
+    unsigned short data_len;
+};
+#pragma pack(pop)
+ 
+struct RES_RECORD
+{
+    unsigned char *name;
+    struct R_DATA *resource;
+    unsigned char *rdata;
+};
+ 
+typedef struct
+{
+    unsigned char *name;
+    struct QUESTION *ques;
+} QUERY;
+ 
+/*
+ * Perform a DNS query by sending a packet
+ * */
+int coordinator_resolve_host(context_t *ctx, char *host )
+{
+	coordinator_config_t *cf = (coordinator_config_t *) ctx->data;
+
+    unsigned char buf[65536],*qname,*reader;
+    int i;
+ 
+    struct sockaddr_in dest;
+ 
+    struct DNS_HEADER *dns = NULL;
+    struct QUESTION *qinfo = NULL;
+ 
+    printf("Resolving %s" , host);
+ 
+    int s = socket(AF_INET , SOCK_DGRAM , IPPROTO_UDP);
+ 
+    dest.sin_family = AF_INET;
+    dest.sin_port = htons(53);
+    dest.sin_addr.s_addr = inet_addr(cf->dns_servers[0]);
+ 
+    dns = (struct DNS_HEADER *)&buf;
+ 
+    dns->id = (unsigned short) htons(getpid());
+    dns->qr = 0; //This is a query
+    dns->opcode = 0; //This is a standard query
+    dns->aa = 0; //Not Authoritative
+    dns->tc = 0; //This message is not truncated
+    dns->rd = 1; //Recursion Desired
+    dns->ra = 0; //Recursion not available! hey we dont have it (lol)
+    dns->z = 0;
+    dns->ad = 0;
+    dns->cd = 0;
+    dns->rcode = 0;
+    dns->q_count = htons(1); //we have only 1 question
+    dns->ans_count = 0;
+    dns->auth_count = 0;
+    dns->add_count = 0;
+ 
+    qname =(unsigned char*)&buf[sizeof(struct DNS_HEADER)];
+ 
+    coordinator_dnsformat(ctx, qname , host);
+    qinfo =(struct QUESTION*)&buf[sizeof(struct DNS_HEADER) + (strlen((const char*)qname) + 1)]; //fill it
+ 
+    qinfo->qtype = htons( 1 );
+    qinfo->qclass = htons(1); //its internet (lol)
+ 
+    printf("\nSending Packet...");
+    if( sendto(s,(char*)buf,sizeof(struct DNS_HEADER) + (strlen((const char*)qname)+1) + sizeof(struct QUESTION),0,(struct sockaddr*)&dest,sizeof(dest)) < 0)
+    {
+        perror("sendto failed");
+    }
+    printf("Done");
+     
+    //Receive the answer
+    i = sizeof dest;
+    printf("\nReceiving answer...");
+    if(recvfrom (s,(char*)buf , 65536 , 0 , (struct sockaddr*)&dest , (socklen_t*)&i ) < 0)
+    {
+        perror("recvfrom failed");
+    }
+    printf("Done");
+ 
+    dns = (struct DNS_HEADER*) buf;
+ 
+    //move ahead of the dns header and the query field
+    reader = &buf[sizeof(struct DNS_HEADER) + (strlen((const char*)qname)+1) + sizeof(struct QUESTION)];
+ 
+    printf("\n %d Answers\n",ntohs(dns->ans_count));
+    return 1;
+}
+ 
+int coordinator_load_dns( context_t *ctx )
+{
+	coordinator_config_t *cf = (coordinator_config_t *) ctx->data;
+
+    FILE *fp;
+    char line[200] , *p;
+    if((fp = fopen("/etc/resolv.conf" , "r")) == NULL) {
+        printf("Failed opening /etc/resolv.conf file \n");
+    }
+     
+    while(fgets(line , 200 , fp)) {
+        if(line[0] == '#')
+            continue;
+        if(strncmp(line , "nameserver" , 10) == 0) {
+            p = strtok(line , " ");
+            p = strtok(NULL , " ");
+			strcpy(cf->dns_servers[cf->dns_max_servers++], p );
+        }
+    }
+
+	return 1;
+}
+ 
+void coordinator_dnsformat(context_t *ctx, unsigned char* dns,unsigned char* host) 
+{
+    unsigned int lock = 0 , i;
+    strcat((char*)host,".");
+	(void)ctx;
+     
+    for(i = 0 ; i < strlen((char*)host) ; i++) {
+        if(host[i]=='.') {
+            *dns++ = (u_char) (i-lock);
+            for(;lock<i;lock++) {
+                *dns++=host[lock];
+            }
+            lock++;
+        }
+    }
+    *dns++='\0';
 }
