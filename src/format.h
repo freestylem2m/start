@@ -54,12 +54,12 @@ typedef struct format_content_s
 		char           *s_val;
 		time_t          d_time;
 		struct {
-			unsigned int  (*c_ptr) (char *, unsigned int, char *, void *);
+			unsigned int  (*c_ptr) (char *, size_t, char *, void *);
 			void           *c_data;
 		};
 	};
 } format_content_t;
 
-extern unsigned int format_string(char *buffer, unsigned int length, const char *format, format_content_t * fc);
+extern size_t format_string(char *buffer, size_t length, const char *format, format_content_t * fc);
 
 #endif

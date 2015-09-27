@@ -31,9 +31,9 @@
 
 #include "format.h"
 
-unsigned int format_string(char *buffer, unsigned int length, const char *format, format_content_t * fc)
+size_t format_string(char *buffer, size_t length, const char *format, format_content_t * fc)
 {
-	unsigned int        i = 0;
+	size_t              i = 0;
 
 	char                wfmt[FORMAT_MAX_SPEC + 3];
 	char               *fmt = wfmt + 1;
@@ -100,7 +100,7 @@ unsigned int format_string(char *buffer, unsigned int length, const char *format
 					i += (unsigned int)snprintf(&buffer[i], length - i, wfmt, fc[k].i_val);
 					break;
 				case FMT_DATESTRING:
-					i += strftime(&buffer[i], length - i, fmt, localtime(&fc[k].d_time));
+					i += (unsigned int) strftime(&buffer[i], length - i, fmt, localtime(&fc[k].d_time));
 					break;
 				case FMT_CALLBACK:
 					i += (fc[k].c_ptr)( &buffer[i], length - i, fmt, fc[k].c_data );

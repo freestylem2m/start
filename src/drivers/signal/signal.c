@@ -99,25 +99,25 @@ ssize_t signal_handler(context_t *ctx, event_t event, driver_data_t *event_data 
 			{
 				x_printf(ctx,"Read event triggerred for fd = %ld\n",fd->fd);
 				size_t bytes;
-				event_bytes( fd->fd, &bytes );
+				event_bytes( (int)fd->fd, &bytes );
 				x_printf(ctx,"exec state = %d\n",cf->state );
 				if( bytes ) {
-					x_printf(ctx,"Read event for fd = %ld (%d bytes)\n",fd->fd, bytes);
+					x_printf(ctx,"Read event for fd = %ld (%d bytes)\n",fd->fd, (int)bytes);
 					char read_buffer[MAX_READ_BUFFER];
 
 					if( bytes >= MAX_READ_BUFFER ) {
 						bytes = MAX_READ_BUFFER-1;
-						x_printf(ctx,"WARNING: Truncating read to %d bytes\n",bytes);
+						x_printf(ctx,"WARNING: Truncating read to %d bytes\n",(int)bytes);
 					}
 
-					ssize_t result = event_read( fd->fd, read_buffer, bytes);
-					x_printf(ctx,"Read event returned %d bytes of data\n",bytes);
+					ssize_t result = event_read( (int) fd->fd, read_buffer, bytes);
+					x_printf(ctx,"Read event returned %d bytes of data\n",(int)bytes);
 
 					if( result >= 0 ) {
 						read_buffer[result] = 0;
 						return 0;
 					} else
-						x_printf(ctx," * WARNING: read return unexpected result %d\n",result);
+						x_printf(ctx," * WARNING: read return unexpected result %d\n",(int)result);
 				} else {
 
 					x_printf(ctx,"EOF on input. Cleaning up\n");

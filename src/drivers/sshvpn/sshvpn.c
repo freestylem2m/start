@@ -119,7 +119,7 @@ int sshvpn_manage_resolver(context_t *ctx, sshvpn_resolver_action_t action)
 
 
 					cf->resolver_data_size = (ssize_t) read( fd, cf->resolver_data, (size_t) info.st_size );
-					x_printf(ctx,"Backed up %d bytes\n",cf->resolver_data_size);
+					x_printf(ctx,"Backed up %d bytes\n",(int)cf->resolver_data_size);
 					x_printf(ctx,"Resolver file contains [%s]\n",cf->resolver_data);
 
 					close( fd );
@@ -410,7 +410,7 @@ ssize_t sshvpn_handler(context_t *ctx, event_t event, driver_data_t *event_data 
 						}
 					}
 					*tptr = 0;
-					printf("%04x: %s %s\n",i,binary,text);
+					printf("%04x: %s %s\n",(unsigned int)i,binary,text);
 					i+=j;
 				}
 #endif

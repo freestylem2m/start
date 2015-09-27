@@ -91,7 +91,8 @@ int check_pid_file(void)
     const char *pid_file = config_item( "global", "pidfile" );
     struct stat info;
     char pid_buffer[PID_BUFFER_MAX];
-    int pid, pid_fd, pid_length;
+    int pid, pid_fd;
+	ssize_t pid_length;
 
     if( !pid_file )
         return 0;

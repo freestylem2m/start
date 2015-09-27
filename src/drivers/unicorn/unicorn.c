@@ -392,7 +392,7 @@ ssize_t unicorn_handler(context_t *ctx, event_t event, driver_data_t *event_data
 
 			if( ((now - cf->last_message) > UNICORN_KEEPALIVE_TIMEOUT ) && ( cf->driver_state != CMD_ST_UNKNOWN )) {
 
-				if( ! cf->flags & UNICORN_LAGGED ) {
+				if( ~ cf->flags & UNICORN_LAGGED ) {
 					// Its been a couple of minutes since the last keepalive, reset the driver_state
 					// to unknown and prompt for one.
 					logger(ctx,"Forcing connection state request due to communications timeout.\n");
@@ -455,7 +455,7 @@ ssize_t unicorn_handler(context_t *ctx, event_t event, driver_data_t *event_data
 #ifndef NDEBUG
 			size_t bytes = u_ringbuf_ready( &cf->input );
 			if( bytes )
-				x_printf(ctx,"Un-processed data in ring buffer... %d bytes\n",bytes);
+				x_printf(ctx,"Un-processed data in ring buffer... %d bytes\n",(int)bytes);
 #endif
 		}
 		break;

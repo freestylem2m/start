@@ -101,13 +101,13 @@ ssize_t temperature_logger_handler(context_t *ctx, event_t event, driver_data_t 
 
 		case EVENT_ALARM:
 			{
-				unsigned int bytes;
+				size_t bytes;
 				int temperature = hvc_getTemperature();
 				int fd = open(cf->logfile, O_CREAT|O_WRONLY|O_APPEND, 0777 );
 				if( fd >= 0 ) {
 					cf->format_content[0].d_time = time(0L);
 					cf->format_content[1].u_val = (unsigned int )temperature;
-					bytes = format_string(cf->format_buffer, TEMPERATURE_LOGGER_BUFFER_MAX-1, cf->format_str, cf->format_content);
+					bytes = format_string(cf->format_buffer, (size_t) TEMPERATURE_LOGGER_BUFFER_MAX-1, cf->format_str, cf->format_content);
 					cf->format_buffer[bytes++] = '\n';
 					if( (write( fd, cf->format_buffer, bytes )) < 0 )
 						perror( AT "write");

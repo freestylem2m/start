@@ -125,13 +125,13 @@ ssize_t u_ringbuf_read( u_ringbuf_t *rb, void *buffer, size_t length )
 {
 	size_t bytes = 0;
 
-	d_printf("Entering ringbuf_read(buffer = %p, length = %d)\n", buffer,length);
+	d_printf("Entering ringbuf_read(buffer = %p, length = %d)\n", buffer,(int)length);
 
 	while( length && rb->read_ptr < rb->write_ptr )
 	{
 		size_t avail = u_ringbuf_ready( rb );
 		//size_t avail = RINGBUFFER_MAX - (rb->write_ptr-rb->read_ptr);
-		d_printf("avail = %d\n",avail);
+		d_printf("avail = %d\n",(int)avail);
 		size_t fixed_read = rb->read_ptr & RINGBUFFER_MODULO;
 
 		if( avail > length )
@@ -140,7 +140,7 @@ ssize_t u_ringbuf_read( u_ringbuf_t *rb, void *buffer, size_t length )
 		if( (fixed_read + avail ) > RINGBUFFER_MAX )
 			avail = RINGBUFFER_MAX - fixed_read;
 
-		d_printf("copying %d bytes\n",avail);
+		d_printf("copying %d bytes\n",(int)avail);
 		memcpy( buffer, rb->buffer + fixed_read, avail );
 		rb->read_ptr += avail;
 		buffer += avail;

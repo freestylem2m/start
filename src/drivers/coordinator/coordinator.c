@@ -407,7 +407,7 @@ ssize_t coordinator_handler(context_t *ctx, event_t event, driver_data_t *event_
 					if( errno != EINTR )
 						logger(ctx,"Error receiving ping data from network");
 				} else {
-					x_printf(ctx,"received %d bytes from ICMP socket", bytes);
+					x_printf(ctx,"received %d bytes from ICMP socket", (int) bytes);
 					if( coordinator_check_ping(ctx, (size_t) bytes) ) {
 						x_printf( ctx, "ICMP reply received.  Terminating ping test.");
 						if( cf->icmp_retry_timer != -1 ) {
@@ -488,7 +488,7 @@ int coordinator_send_ping(context_t * ctx)
 	ssize_t             i;
 
 	// Update sequence count before sending packet.
-	cf->icmp_count = (cf->icmp_count + 1) & ICMP_SEQUENCE_MASK;
+	cf->icmp_count = (u_int16_t) ((cf->icmp_count + 1) & ICMP_SEQUENCE_MASK);
 
 	icp = (struct icmphdr *)cf->icmp_out;
 	icp->type = ICMP_ECHO;
@@ -546,7 +546,7 @@ int coordinator_check_ping(context_t *ctx, size_t bytes)
 	size_t i;
 	for(i = 0; i < ICMP_DATALEN; i++, cp++, dp++ ) {
 		if( *cp != *dp )
-			x_printf(ctx,"mismatch at %i, %d instead of %d\n",i,*cp,*dp);
+			x_printf(ctx,"mismatch at %i, %d instead of %d\n",(int) i,*cp,*dp);
 	}
 
 	x_printf(ctx,"icmp ident = %d (should be %d)",icp->un.echo.id, cf->icmp_ident);
@@ -586,118 +586,6 @@ u_int16_t coordinator_cksum(u_short * addr, size_t len)
 	 */
 	sum = (sum >> 16) + (sum & 0xffff);					   /* add hi 16 to low 16 */
 	sum += (sum >> 16);									   /* add carry */
-	answer = ~(u_short) sum;							   /* truncate to 16 bits */
+	answer = (u_short) ~sum;							   /* truncate to 16 bits */
 	return (answer);
-}
-
-int coordinator_resolve_host(context_t *ctx, char *host )
-{
-	coordinator_config_t *cf = (coordinator_config_t *) ctx->data;
-
-    unsigned char buf[65536],*qname,*reader;
-    int i;
- 
-    struct sockaddr_in dest;
- 
-    struct DNS_HEADER *dns = NULL;
-    struct QUESTION *qinfo = NULL;
- 
-    int s = socket(AF_INET , SOCK_DGRAM , IPPROTO_UDP);
- 
-    dest.sin_family = AF_INET;
-    dest.sin_port = htons(53);
-    dest.sin_addr.s_addr = inet_addr(cf->dns_servers[0]);
- 
-    dns = (struct DNS_HEADER *)&buf;
- 
-    dns->id = htons( (unsigned short) getpid());
-    dns->qr = 0; //This is a query
-    dns->opcode = 0; //This is a standard query
-    dns->aa = 0; //Not Authoritative
-    dns->tc = 0; //This message is not truncated
-    dns->rd = 1; //Recursion Desired
-    dns->ra = 0; //Recursion not available! hey we dont have it (lol)
-    dns->z = 0;
-    dns->ad = 0;
-    dns->cd = 0;
-    dns->rcode = 0;
-    dns->q_count = htons(1); //we have only 1 question
-    dns->ans_count = 0;
-    dns->auth_count = 0;
-    dns->add_count = 0;
- 
-    qname =(unsigned char*)&buf[sizeof(struct DNS_HEADER)];
- 
-    coordinator_dnsformat(ctx, qname , host);
-    qinfo =(struct QUESTION*)&buf[sizeof(struct DNS_HEADER) + (strlen((const char*)qname) + 1)]; //fill it
- 
-    qinfo->qtype = htons( 1 );
-    qinfo->qclass = htons(1); //its internet (lol)
- 
-    printf("\nSending Packet...");
-    if( sendto(s,(char*)buf,sizeof(struct DNS_HEADER) + (strlen((const char*)qname)+1) + sizeof(struct QUESTION),0,(struct sockaddr*)&dest,sizeof(dest)) < 0)
-    {
-        perror("sendto failed");
-    }
-    printf("Done");
-     
-    //Receive the answer
-    i = sizeof dest;
-    printf("\nReceiving answer...");
-    if(recvfrom (s,(char*)buf , 65536 , 0 , (struct sockaddr*)&dest , (socklen_t*)&i ) < 0)
-    {
-        perror("recvfrom failed");
-    }
-    printf("Done");
- 
-    dns = (struct DNS_HEADER*) buf;
- 
-    //move ahead of the dns header and the query field
-    reader = &buf[sizeof(struct DNS_HEADER) + (strlen((const char*)qname)+1) + sizeof(struct QUESTION)];
- 
-    return dns->ans_count;
-}
- 
-int coordinator_load_dns( context_t *ctx )
-{
-	coordinator_config_t *cf = (coordinator_config_t *) ctx->data;
-
-	FILE *fp;
-	char line[200] , *p;
-	if((fp = fopen("/etc/resolv.conf" , "r")) == NULL) {
-		logger(ctx, "Failed to open /etc/resolv.conf file");
-		return 0;
-	}
-
-	while(fgets(line , 200 , fp)) {
-		if(line[0] == '#')
-			continue;
-		if(strncmp(line , "nameserver" , 10) == 0) {
-			p = strtok(line , " ");
-			p = strtok(NULL , " ");
-			x_printf(ctx,"Loaded DNS Server %s\n",p);
-			strcpy(cf->dns_servers[cf->dns_max_servers++], p );
-		}
-	}
-	fclose( fp );
-
-	return 1;
-}
- 
-void coordinator_dnsformat(context_t *ctx, unsigned char* dns,char* host)
-{
-    unsigned int lock = 0 , i;
-    strcat((char*)host,".");
-	(void)ctx;
-     
-    for(i = 0 ; i < strlen((char*)host) ; i++) {
-        if(host[i]=='.') {
-            *dns++ = (u_char) (i-lock);
-            for(;lock<i;lock++) {
-                *dns++=host[lock];
-            }
-            lock++;
-        }
-    }
-    *dns++='\0';
 }

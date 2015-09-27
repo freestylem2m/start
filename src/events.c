@@ -205,21 +205,21 @@ event_request_t *event_add( context_t *ctx, const long fd, unsigned int flags )
 
 	if( flags & EH_SIGNAL ) {
 		// For signals, make sure the handler is installed
-		if( ! sigismember( &event_signals.event_signal_mask, fd ) ) {
+		if( ! sigismember( &event_signals.event_signal_mask, (int)fd ) ) {
 			struct sigaction action_handler;
 			memset( &action_handler, 0, sizeof( action_handler ) );
 			action_handler.sa_handler = handle_signal_event;
 			action_handler.sa_flags = 0; // SA_RESTART;
-			sigaction( fd, &action_handler, NULL );
-			sigaddset( &event_signals.event_signal_mask, fd );
-			sigdelset( &event_signals.event_signal_default, fd );
+			sigaction( (int)fd, &action_handler, NULL );
+			sigaddset( &event_signals.event_signal_mask, (int) fd );
+			sigdelset( &event_signals.event_signal_default, (int) fd );
 		}
 	} else if( flags & EH_WANT_TICK ) {
 		entry->timestamp = rel_time(0L);
 	} else
 		// For un-special file descriptors, force non-blocking
         if( (flags & (EH_READ|EH_WRITE)) && ! ( flags & EH_SPECIAL ) )
-            fcntl(fd, F_SETFL, fcntl(fd, F_GETFL) | O_NONBLOCK);
+            fcntl((int)fd, F_SETFL, fcntl((int)fd, F_GETFL) | O_NONBLOCK);
 
 	return entry;
 }
@@ -244,7 +244,7 @@ void event_delete( context_t *ctx, const long fd, event_handler_flags_t flags )
 	}
 }
 
-int create_event_set( fd_set *readfds, fd_set *writefds, fd_set *exceptfds, int *max )
+int create_event_set( fd_set *readfds, fd_set *writefds, fd_set *exceptfds, long *max )
 {
 	int count = 0;
 	int i;
@@ -367,10 +367,10 @@ int handle_pending_signals( void )
 
 	int i;
 	for( i = 0; i < MAX_EVENT_REQUESTS; i ++ ) {
-		if( ( event_table[i].flags & EH_SIGNAL ) == EH_SIGNAL && sigismember( &temp_signals, event_table[i].fd )) {
+		if( ( event_table[i].flags & EH_SIGNAL ) == EH_SIGNAL && sigismember( &temp_signals, (int) event_table[i].fd )) {
 
 			driver_data_t data = { TYPE_SIGNAL, 0L, {} };
-			data.event_signal = event_table[i].fd;
+			data.event_signal = (int) event_table[i].fd;
 
 			event_table[i].ctx->driver->emit( event_table[i].ctx, EVENT_SIGNAL, &data );
 		}
@@ -381,7 +381,7 @@ int handle_pending_signals( void )
 
 int handle_event_alarm(event_request_t *event)
 {
-	int alarm_fd = event->fd;
+	int alarm_fd = (int) event->fd;
 
 	if( alarm_table[alarm_fd].flags & ALARM_INTERVAL )
 		alarm_update_interval( event->ctx, alarm_fd );
@@ -425,7 +425,7 @@ int handle_event_set(fd_set * readfds, fd_set * writefds, fd_set * exceptfds)
 				alarm_table[event_table[i].fd].flags |= ALARM_FIRED;
 
 				driver_data_t       data = { TYPE_ALARM, 0, {} };
-				data.event_alarm = event_table[i].fd;
+				data.event_alarm = (int) event_table[i].fd;
 				event_table[i].ctx->driver->emit(event_table[i].ctx, EVENT_ALARM, &data);
 
 				// If the event handler changes the alarm in any way, the 'fired' flag is cleared
@@ -463,7 +463,7 @@ int handle_timer_events()
 
 int event_loop( long timeout )
 {
-	int max_fd = 0;
+	long max_fd = 0;
 
 	fd_set fds_read, fds_write, fds_exception;
 	if( ! create_event_set( &fds_read, &fds_write, &fds_exception, &max_fd ) )
@@ -489,7 +489,7 @@ int event_loop( long timeout )
 	if( event_signals.event_signal_pending_count )
 		tm.tv_nsec = tm.tv_sec = 0;
 
-	int rc = pselect( max_fd, &fds_read, &fds_write, &fds_exception, &tm, &event_signals.event_signal_default );
+	int rc = pselect( (int) max_fd, &fds_read, &fds_write, &fds_exception, &tm, &event_signals.event_signal_default );
 #else
 	// expect queued signals to occur immediately
 	sigprocmask( SIG_SETMASK, &event_signals.event_signal_default, NULL );
@@ -578,7 +578,7 @@ ssize_t event_read( int fd, char *buffer, size_t len )
 {
 	ssize_t rc;
 	while( (rc = read( fd, buffer, len )) < 0 ) {
-		d_printf("Read returned error.  %d:%s(%d)\n",rc,strerror(errno),errno);
+		d_printf("Read returned error.  %d:%s(%d)\n",(int) rc,strerror(errno),errno);
 		if( errno != EAGAIN )
 			return rc;
 	}

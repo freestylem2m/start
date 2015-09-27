@@ -111,7 +111,7 @@ ssize_t console_handler(context_t *ctx, event_t event, driver_data_t *event_data
 		case EVENT_READ:
 			{
 				size_t          bytes;
-				event_bytes(fd->fd, &bytes);
+				event_bytes((int)fd->fd, &bytes);
 
 				if (bytes) {
 					char            read_buffer[MAX_READ_BUFFER];
@@ -119,7 +119,7 @@ ssize_t console_handler(context_t *ctx, event_t event, driver_data_t *event_data
 					if( bytes >= MAX_READ_BUFFER )
 						bytes = MAX_READ_BUFFER-1;
 
-					ssize_t         result = event_read(fd->fd, read_buffer, bytes);
+					ssize_t         result = event_read((int)fd->fd, read_buffer, bytes);
 
 					if (result >= 0)
 						read_buffer[result] = 0;

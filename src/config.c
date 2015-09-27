@@ -92,7 +92,7 @@ int config_get_binval(const config_t *section, const char *item, unsigned int *p
 		i++;
 	}
 
-	*pval = val;
+	*pval = (unsigned int) val;
 
 	return 1;
 }

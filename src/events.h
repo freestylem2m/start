@@ -145,7 +145,7 @@ typedef enum
 	TYPE_FD,					// event_fd
 	TYPE_DATA,					// event_data
 	TYPE_SIGNAL,				// event_signal
-	TYPE_ALARM,					// event_signal
+	TYPE_ALARM,					// event_alarm
 	TYPE_TICK,					// event_tick
 	TYPE_CHILD,					// event_child
 	// Driver specific data types, which breaks the driver model somewhat, but
