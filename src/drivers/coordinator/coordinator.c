@@ -309,11 +309,12 @@ ssize_t coordinator_handler(context_t *ctx, event_t event, driver_data_t *event_
 
 		case EVENT_DATA_INCOMING:
 		case EVENT_DATA_OUTGOING:
-			if( data )
+			if( data ) {
 				if( source == cf->unicorn && cf->network )
 					return emit( cf->network, event, event_data );
 				if( source == cf->network && cf->unicorn )
 					return emit( cf->unicorn, event, event_data );
+			}
 			break;
 
 		case EVENT_SIGNAL:
@@ -400,7 +401,7 @@ ssize_t coordinator_handler(context_t *ctx, event_t event, driver_data_t *event_
 			x_printf(ctx,"Got a read event on file descriptor %ld",event_data->event_request.fd);
 			if( event_data->event_request.fd == cf->icmp_sock ) {
 				struct sockaddr_in from;
-				size_t fromlen;
+				socklen_t fromlen;
 				ssize_t bytes = recvfrom(cf->icmp_sock, cf->icmp_in, ICMP_PAYLOAD, 0, (struct sockaddr *)&from, &fromlen);
 				if( bytes < 0 ) {
 					if( errno != EINTR )
