@@ -60,6 +60,55 @@ typedef struct format_content_s
 	};
 } format_content_t;
 
+/*
+ * Hexdump() functions.
+ *
+ * The base 'format_hexdump()' function takes a byte array and an output buffer.
+ *
+ * The output buffer is filled, and the number of bytes is returned.
+ *
+ * If the total number of bytes returned is greater than the length of the output buffer
+ * then the output will be truncated.
+ *
+ * For normal use, call format_hexdump(), check the return code, if the return code is greater
+ * than the length of the buffer, reallocate the buffer and retry.
+ *
+ * The following macros implement the debug functions:
+ *   x_hexdump( context, data, bytes )
+ *   d_hexdump( data, bytes )
+ *   print_hexdump( data, bytes )
+ *
+ * These each call 'c_hexdump()' with a callback function of x_printf(), d_printf() and printf() respectively.
+ *
+ * The use of the macros simplifies the use of the hexdump function, they use alloca() to allocate sufficient
+ * space on the stack, format the data, and call the callback for each line of data in the output buffer
+ *
+ */
+
+#ifndef NDEBUG
+#define HEXDUMP_BUFFER_MIN 1024
+#define __d_printf(x)     d_printf("%s\n",x)
+#define __x_printf(x,ctx) x_printf(ctx,"%s\n",x)
+#define __printf(x)       printf("%s\n",x)
+
+#define c_hexdump(data,bytes, func, ...) { \
+	size_t _l = HEXDUMP_BUFFER_MIN; \
+	char  *_o = alloca( _l ); \
+	size_t _s = format_hex( _o, _l, data, bytes ); \
+	if( _s > _l ) { _o = alloca( _s ); format_hex( _o, _s, buf, bytes ); } \
+	while( *_o ) { func(_o, ## __VA_ARGS__ ); _o += strlen(_o)+1; } \
+}
+
+#define x_hexdump(ctx,data,bytes) c_hexdump(data, bytes, __x_printf, ctx)
+#define d_hexdump(data,bytes) c_hexdump(data, bytes, __d_printf)
+#define print_hexdump(data,bytes) c_hexdump(data, bytes, __printf)
+#else
+#define x_hexdump(...) {}
+#define d_hexdump(...) {}
+#define print_hexdump(...) {}
+#endif
+
 extern size_t format_string(char *buffer, size_t length, const char *format, format_content_t * fc);
+extern size_t format_hex( char *buffer, size_t length, const unsigned char *data, size_t bytes);
 
 #endif

@@ -93,20 +93,20 @@ ssize_t ping_handler(context_t *ctx, event_t event, driver_data_t *event_data )
 					for( i = 0; i < ICMP_DATALEN; i++ )
 						cf->icmp_out[i] = i;
 
-					cf->icmp_ident = getpid();
+					cf->ping.icmp_ident = getpid();
 
-					if( ! config_get_intval( ctx->config, "ping_retry", &cf->icmp_max ) )
-						cf->icmp_max = 5;
-					if( !  config_get_timeval( ctx->config, "ping_ttl", &cf->icmp_ttl ) )
-						cf->icmp_ttl = 3000;
-					if( !  config_get_timeval( ctx->config, "ping_interval", &cf->icmp_interval ) )
-						cf->icmp_interval = PING_ICMP_INTERVAL;
+					if( ! config_get_intval( ctx->config, "ping_retry", &cf->ping.icmp_max ) )
+						cf->ping.icmp_max = 5;
+					if( !  config_get_timeval( ctx->config, "ping_ttl", &cf->ping.icmp_ttl ) )
+						cf->ping.icmp_ttl = 3000;
+					if( !  config_get_timeval( ctx->config, "ping_interval", &cf->ping.icmp_interval ) )
+						cf->ping.icmp_interval = PING_ICMP_INTERVAL;
 
 					const char *target = config_get_item( ctx->config, "ping_host" );
 
-					memset( &cf->icmp_dest, 0, sizeof( struct sockaddr_in ));
-					cf->icmp_dest.sin_family = AF_INET;
-					if( ! inet_aton(target, &cf->icmp_dest.sin_addr) ) {
+					memset( &cf->ping.icmp_dest, 0, sizeof( struct sockaddr_in ));
+					cf->ping.icmp_dest.sin_family = AF_INET;
+					if( ! inet_aton(target, &cf->ping.icmp_dest.sin_addr) ) {
 						logger(ctx,"Unable to resolve ping host %s.  Disabling ping",target);
 					} else {
 						cf->icmp_sock = socket( AF_INET, SOCK_RAW, IPPROTO_ICMP );
@@ -148,8 +148,8 @@ ssize_t ping_handler(context_t *ctx, event_t event, driver_data_t *event_data )
 						if( cf->icmp_retry_timer != -1 )
 							event_alarm_delete( ctx, cf->icmp_retry_timer );
 
-						cf->icmp_retry_timer = event_alarm_add( ctx, cf->icmp_ttl, ALARM_INTERVAL );
-						cf->icmp_retries = cf->icmp_max;
+						cf->icmp_retry_timer = event_alarm_add( ctx, cf->ping.icmp_ttl, ALARM_INTERVAL );
+						cf->icmp_retries = cf->ping.icmp_max;
 						cf->flags |= PING_PING_INPROGRESS;
 						ping_send_ping(ctx);
 					}
@@ -214,13 +214,13 @@ int ping_send_ping(context_t * ctx)
 	icp->code = 0;
 	icp->checksum = 0;
 	icp->un.echo.sequence = cf->icmp_count;
-	icp->un.echo.id = (u_int16_t) cf->icmp_ident;
+	icp->un.echo.id = (u_int16_t) cf->ping.icmp_ident;
 
 	cc = (size_t) ICMP_DATALEN + sizeof(struct icmphdr);
 
 	icp->checksum = ping_cksum((u_short *) icp, cc);
 
-	i = sendto(cf->icmp_sock, (char *)cf->icmp_out, cc, 0, (const struct sockaddr *)&cf->icmp_dest, sizeof(struct sockaddr));
+	i = sendto(cf->icmp_sock, (char *)cf->icmp_out, cc, 0, (const struct sockaddr *)&cf->ping.icmp_dest, sizeof(struct sockaddr));
 
 	if (i < 0)
 		perror("ping: sendto");
@@ -249,7 +249,7 @@ int ping_check_ping(context_t *ctx, size_t bytes)
 
 	x_printf(ctx,"ICMP type = %d\n",icp->type );
 
-	if( icp->un.echo.id != cf->icmp_ident ) {
+	if( icp->un.echo.id != cf->ping.icmp_ident ) {
 		// some one elses packet
 		return 0;
 	}
@@ -268,7 +268,7 @@ int ping_check_ping(context_t *ctx, size_t bytes)
 			x_printf(ctx,"mismatch at %i, %d instead of %d\n",(int) i,*cp,*dp);
 	}
 
-	x_printf(ctx,"icmp ident = %d (should be %d)",icp->un.echo.id, cf->icmp_ident);
+	x_printf(ctx,"icmp ident = %d (should be %d)",icp->un.echo.id, cf->ping.icmp_ident);
 	x_printf(ctx,"icmp sequence = %d (should be %d)",icp->un.echo.sequence, cf->icmp_count);
 	x_printf(ctx,"icmp type = %d (should be %d)",icp->type, ICMP_ECHOREPLY);
 

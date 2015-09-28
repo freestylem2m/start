@@ -30,10 +30,12 @@
 #include "cmdline.h"
 #include <stdio.h>
 #include <stdlib.h>
-#include <sys/types.h>
 #include <unistd.h>
+#include <sys/types.h>
 #include <sys/stat.h>
 #include <fcntl.h>
+#include <string.h>
+#include <errno.h>
 
 #include "config.h"
 #include "driver.h"
@@ -117,12 +119,14 @@ int check_pid_file(void)
         unlink( pid_file );
     }
 
-    pid_fd =open( pid_file, O_CREAT|O_TRUNC|O_WRONLY );
+    pid_fd = open( pid_file, O_CREAT|O_TRUNC|O_WRONLY, 0644 );
     pid_length = snprintf(pid_buffer,PID_BUFFER_MAX, "%d\n",getpid());
 
     if( pid_fd >= 0 ) {
         if( pid_length >= 0 )
-            write( pid_fd, pid_buffer, (size_t) pid_length );
+            if( write( pid_fd, pid_buffer, (size_t) pid_length ) < 0 )
+				fprintf(stderr,"Failed to write pid file %s: %s\n", pid_file, strerror( errno ));
+
         close( pid_fd );
     }
 

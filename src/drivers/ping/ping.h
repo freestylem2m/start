@@ -2,8 +2,10 @@
 #ifndef __DRIVER_PING_H_
 #define __DRIVER_PING_H_
 
+#include <netinet/ip_icmp.h>
+
 #include "driver.h"
-#include "netinet/ip_icmp.h"
+#include "ping_conf.h"
 
 #define FD_READ 0
 #define FD_WRITE 1
@@ -33,20 +35,17 @@ typedef struct ping_config_t {
 	ping_state_t state;
 	ping_flags_t flags;
 
-	int     icmp_ident;					// Ping identifier (getpid())
-	int     icmp_sock;					// RAW Socket
-	struct sockaddr_in icmp_dest;		// Remote host
-	u_char  icmp_out[ICMP_DATALEN+sizeof(struct icmphdr)];
-	u_char  icmp_in[ICMP_PAYLOAD];
+	ping_conf_t	 ping;
 
-	time_t  icmp_interval;				// Time between ping tests
-	time_t  icmp_ttl;					// Time between retries
-	int     icmp_max;					// Maximum retries
-	int     icmp_retries;				// Current retry count
-	u_int16_t icmp_count;				// Unique ID for each ping packet
+	u_char		icmp_out[ ICMP_DATALEN+sizeof(struct icmphdr) ];
+	u_char		icmp_in[ ICMP_PAYLOAD ];
 
-	int     icmp_timer;					// Event timer - ping tests
-	int     icmp_retry_timer;			// Event timer - retries
+	int			icmp_sock;					// ICMP Socket
+	int			icmp_retries;				// Current retry count
+	u_int16_t	icmp_count;					// Unique ID for each ping packet
+
+	int			icmp_timer;					// Event timer - ping tests
+	int			icmp_retry_timer;			// Event timer - retries
 } ping_config_t;
 
 extern int ping_init(context_t *);

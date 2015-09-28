@@ -130,10 +130,11 @@ int sshvpn_manage_resolver(context_t *ctx, sshvpn_resolver_action_t action)
 		case RESOLVER_RESTORE:
 			x_printf(ctx,"RESOLVER RESTORE:\n");
 			if( cf->resolver_data && (cf->resolver_data_size > 0)) {
-				int fd = open( cf->resolver_file, O_CREAT|O_TRUNC|O_WRONLY );
+				int fd = open( cf->resolver_file, O_CREAT|O_TRUNC|O_WRONLY, 0666 );
 				if( fd < 0 )
 					return -1;
-				write( fd, cf->resolver_data, (size_t) cf->resolver_data_size );
+				if( write( fd, cf->resolver_data, (size_t) cf->resolver_data_size ) < 0)
+					logger( ctx, "Failed to restore %s. %s\n",cf->resolver_file, strerror( errno ) );
 				close( fd );
 			}
 			break;

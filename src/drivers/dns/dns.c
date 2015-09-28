@@ -51,6 +51,7 @@
 #include "logger.h"
 #include "unicorn.h"
 #include "clock.h"
+#include "format.h"
 
 int dns_init(context_t *context)
 {
@@ -94,7 +95,7 @@ ssize_t dns_handler(context_t *ctx, event_t event, driver_data_t *event_data )
 	switch( event ) {
 		case EVENT_INIT:
 			if( event_data->type == TYPE_CUSTOM && event_data->event_custom ) {
-				dns_init_t *init = (dns_init_t *) (event_data->event_custom);
+				dns_conf_t *init = (dns_conf_t *) (event_data->event_custom);
 				dns_load_servers( ctx, init->dns_resolver );
 
 				cf->dns_timeout = init->dns_timeout;
@@ -176,7 +177,7 @@ ssize_t dns_handler(context_t *ctx, event_t event, driver_data_t *event_data )
 			if( event_data->event_request.fd == cf->sock_fd ) {
 				x_printf(ctx,"Got a read event on file descriptor %ld\n",event_data->event_request.fd);
 				in_addr_t rc = dns_handle_dns_response( ctx, &( event_data->event_request ));
-				x_printf(ctx, "handle response returned %d (%s)\n",rc, inet_ntoa( *(struct in_addr *) &rc ));
+				x_printf(ctx, "handle response returned %d (0x%08x) (%s)\n", ntohl(rc), ntohl(rc), inet_ntoa( *(struct in_addr *) &rc ));
 
 				if( rc == (unsigned long) -1 ) {
 					x_printf(ctx,"Error reading from socket, skipping\n");
@@ -259,54 +260,66 @@ in_addr_t dns_handle_dns_response(context_t *ctx, event_request_t *request)
 	dns_config_t *cf = (dns_config_t *) ctx->data;
 
 	size_t bytes;
-    struct sockaddr_in dest;
+	struct sockaddr_in dest;
 
 	event_bytes( (int) request->fd, &bytes );
 
-    unsigned char *buf = alloca( bytes+1 );
+	unsigned char *buf = alloca( bytes+1 );
 
-    size_t i = sizeof dest;
+	size_t i = sizeof dest;
 
-    x_printf(ctx, "Receiving answer...\n");
+	x_printf(ctx, "Receiving answer...\n");
 
-    if(recvfrom (cf->sock_fd,(char*)buf , 65536 , 0 , (struct sockaddr*)&dest , (socklen_t*)&i ) < 0) {
-        x_printf(ctx,"recvfrom() failed: %s\n",strerror(errno));
+	if(recvfrom (cf->sock_fd,(char*)buf , bytes , 0 , (struct sockaddr*)&dest , (socklen_t*)&i ) < 0) {
+		x_printf(ctx,"recvfrom() failed: %s\n",strerror(errno));
 		return (in_addr_t)(unsigned long)-1;
-    }
-    //x_printf(ctx, "Done\n");
+	}
 
-    //struct DNS_HEADER *dns = (struct DNS_HEADER*) buf;
+	x_printf(ctx,"bytes recv()d = %d\n",(int) bytes);
+	x_hexdump(ctx, buf, bytes);
+
+	//x_printf(ctx, "Done\n");
+
+	struct DNS_HEADER *dns = (struct DNS_HEADER*) buf;
+
+	int answers = ntohs( dns->ans_count );
+#if 0
+	x_printf(ctx,"Answers = %d\n",answers);
+#endif
 
 	unsigned char *ptr = buf + sizeof( struct DNS_HEADER );
 	ptr += strlen( (char *) ptr ) + 1;
 	ptr += sizeof( struct QUESTION );
 
-	while (*ptr) {
-		//x_printf(ctx, "Found %d (%02x)\n",*ptr, *ptr);
-		if( *ptr >= 192 )
-			ptr += 2;
-		else
-			ptr += strlen( (char *)ptr ) + 1;
-	}
+	while( answers ) {
+		while (*ptr) {
+			if( *ptr >= 192 )
+				ptr += 2;
+			else
+				ptr += strlen( (char *)ptr ) + 1;
+		}
 
-	struct R_DATA *r = (struct R_DATA *) ptr;
+		struct R_DATA *r = (struct R_DATA *) ptr;
 
-	ptr += sizeof( struct R_DATA );
+		ptr += sizeof( struct R_DATA );
 
-	int type = ntohs( r->type );
-	int length = ntohs( r->data_len );
+		int type = ntohs( r->type );
+		int length = ntohs( r->data_len );
 
 #if 0
-	x_printf(ctx, "type = %d\n",type);
-	x_printf(ctx, "len = %d\n",length);
-	x_printf(ctx, "Finished on %d (%02x)\n",*ptr, *ptr);
+		x_printf(ctx, "type = %d\n",type);
+		x_printf(ctx, "len = %d\n",length);
+		x_printf(ctx, "Finished on %d (%02x)\n",*ptr, *ptr);
 #endif
 
-	if( type == 1 /* IPV4_A */ && length == sizeof( in_addr_t ) ) {
-		return *(in_addr_t *)ptr;
+		if( type == 1 /* IPV4_A */ && length == sizeof( in_addr_t ) ) {
+			return *(in_addr_t *)ptr;
+		} else
+			ptr += length;
 	}
 
-    return 0;
+
+	return 0;
 }
 
 int dns_load_servers( context_t *ctx, const char *filename )

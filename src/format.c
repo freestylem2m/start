@@ -25,6 +25,7 @@
 #include <stdlib.h>
 #include <unistd.h>
 #include <time.h>
+#include <sys/types.h>
 #include <ctype.h>
 #include <string.h>
 #include <errno.h>
@@ -145,11 +146,53 @@ size_t format_string(char *buffer, size_t length, const char *format, format_con
 	return i > length ? length : i;
 }
 
+size_t format_hex(char *buffer, size_t length, const unsigned char *buff, size_t bytes)
+{
+	int idx = 0;
+	size_t o = 0;
+	size_t addr = 0;
+
+	char *index;
+
+	if (! bytes )
+		return 0;
+
+	memset((void *)(index = buffer), 0, length);
+
+	while( bytes ) {
+		o += (size_t) snprintf(buffer+o, length>o?length-o:0, "   0x%04x: ", (int)addr);
+		for( idx = 0; idx < 16; idx ++ )
+			if( idx < bytes )
+				o += (size_t) snprintf(buffer+o, length>o?length-o:0, "%02x ", buff[idx] );
+			else
+				o += (size_t) snprintf(buffer+o, length>o?length-o:0, "   ");
+
+		o += (size_t) snprintf(buffer+o, length>o?length-o:0, " ");
+		for( idx = 0; idx < 16; idx ++ )
+			if( idx < bytes )
+				o += (size_t) snprintf(buffer+o, length>o?length-o:0, "%c", isprint(buff[idx])?buff[idx]:'.' );
+
+		buff += 16;
+		addr += 16;
+		bytes -= (bytes < 16) ? bytes : 16;
+		if( length > o )
+			buffer[o++] = 0;
+		else
+			o++;
+	}
+	if( length > o )
+		buffer[o++] = 0;
+	else
+		o++;
+
+	return o;
+}
+
 #ifdef TEST_MAIN
 #define TEST_MAIN
 int main(int ac __attribute__ ((unused)), char *av[] __attribute__ ((unused)))
 {
-
+#if 0
 	format_content_t    s[] = {
 		{'i', FMT_ULONG, {.l_val = 999999999999}},
 		{'z', FMT_STRING, {.s_val = "hello"}},
@@ -160,6 +203,30 @@ int main(int ac __attribute__ ((unused)), char *av[] __attribute__ ((unused)))
 	char                buffer[1024];
 	format_string(buffer, 1024, "first %i%% - %{-2p1}z world today %{%s - %D:%T}T now - %m %23o", s);
 	printf("buffer = %s\n", buffer);
+#endif
+
+#define S 50
+	unsigned char buffer[S];
+	int i;
+	for(i=0;i<S;i++)
+		buffer[i]=i+'a';
+
+	int n = 128;
+	char *output;
+	while(1) {
+		output = alloca(n);
+		size_t s = format_hex( output, n, buffer, S );
+		if( s > n )
+			n = s;
+		else
+			break;
+	}
+	printf("n = %d\n",(int)n);
+	char *p = output;
+	while(*p) {
+		printf("%s\n",p);
+		p+=strlen(p)+1;
+	}
 
 	return 0;
 }
