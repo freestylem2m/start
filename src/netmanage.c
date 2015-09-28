@@ -45,12 +45,10 @@ context_t *safe_start_service( context_t **pctx, const char *name, const config_
 
 	if( find_driver( name ) ) {
 
-		d_printf("Calling start driver %s\n",name);
+		//d_printf("Calling start driver %s\n",name);
 		context_t *m = start_driver( pctx, name, parent_config->section, parent_config, owner, pdata );
-		d_printf("Start driver %s returned %p\n",name,m);
+		//d_printf("Start driver %s returned %p\n",name,m);
 		return m;
-
-		//return start_driver( pctx, name, parent_config->section, parent_config, owner, pdata );
 	}
 
 	const config_t *service_config = config_get_section( name );
@@ -68,9 +66,11 @@ context_t *safe_start_service( context_t **pctx, const char *name, const config_
 				if( (ctx = start_driver( pctx, driver_name, name, service_config, owner, pdata )) )
                     continue;
 
-			d_printf("last driver returned %p (pctx = %p)\n",ctx, *pctx);
+			//d_printf("last driver returned %p (pctx = %p)\n",ctx, *pctx);
+#if 0
 			if( pctx && *pctx )
 				d_printf("last driver aka %s\n",(*pctx)->name) ;
+#endif
 			driver_list = 0L; // all failures end up here.
 		}
 	} else {
@@ -97,6 +97,9 @@ int check_pid_file(void)
     if( !pid_file )
         return 0;
 
+#if 0
+	d_printf("Checking PID file %s\n", pid_file );
+#endif
     if( ! stat( pid_file, &info ) ) {
         pid_fd = open( pid_file, O_RDONLY );
         if( pid_fd ) {
@@ -182,6 +185,7 @@ int main(int ac, char *av[])
 
 	run();
 
+	driver_cleanup();
 	config_cleanup();
 	cleanup_pid_file();
 

@@ -138,13 +138,16 @@ int event_subsystem_init(void)
 event_request_t *event_find( const context_t *ctx, const long fd, const unsigned int flags )
 {
 	unsigned int event_type = flags & EH_SPECIAL;
+	//x_printf(ctx, "Looking for event type %02x\n",event_type);
 
 	int i;
 	for( i = 0; i < MAX_EVENT_REQUESTS; i ++ ) {
-		if (event_table[i].ctx == ctx)
+		if (event_table[i].ctx == ctx) {
+			//x_printf(ctx,"Event type for entry[%d] = %02x (fd = %d)\n",i, (event_table[i].flags & EH_SPECIAL ), (int)event_table[i].fd );
 			if( !( event_type ^ ( event_table[i].flags & EH_SPECIAL ) ) )
 				if( event_table[i].fd == fd )
 					return &event_table[i];
+		}
 	}
 
 	return 0L;
@@ -164,7 +167,7 @@ int event_alarm_add( context_t *ctx, time_t interval, event_alarm_flags_t flags 
 {
 	int alarm_fd = alarm_add( ctx, interval, flags );
 
-	x_printf(ctx,"calling event add %d EH_TIMER (interval = %ld)\n",alarm_fd, interval);
+	//x_printf(ctx,"calling event add %d EH_TIMER (interval = %ld)\n",alarm_fd, interval);
 	if( event_add( ctx, alarm_fd, EH_TIMER ) )
 		return alarm_fd;
 
@@ -192,7 +195,7 @@ event_request_t *event_add( context_t *ctx, const long fd, unsigned int flags )
 {
 	event_request_t *entry = event_find( ctx,  fd, flags );
 
-	d_printf("EVENT ADD called.  fd = %ld, flags = %02x (%c)\n",fd,flags,flags&EH_READ?'r':(flags&EH_WRITE?'w':(flags&EH_SPECIAL?'S':'?')));
+	//x_printf(ctx, "EVENT ADD called.  fd = %ld, flags = %02x (%c)\n",fd,flags,flags&EH_READ?'r':(flags&EH_WRITE?'w':(flags&EH_SPECIAL?'S':'?')));
 	if( !entry )
 		entry = event_find_free_slot();
 
@@ -228,7 +231,7 @@ void event_delete( context_t *ctx, const long fd, event_handler_flags_t flags )
 {
 	event_request_t *entry = event_find( ctx, fd, flags );
 
-	d_printf("EVENT DELETE called.  fd = %ld, flags = %02x (%c)\n",fd,flags,flags&EH_READ?'r':(flags&EH_WRITE?'w':(flags&EH_SPECIAL?'S':'?')));
+	//x_printf(ctx,"EVENT DELETE called.  fd = %ld, flags = %02x (%c) = %p\n",fd,flags,flags&EH_READ?'r':(flags&EH_WRITE?'w':(flags&EH_SPECIAL?'S':'?')), entry);
 
 	if( entry ) {
 		if( flags )
@@ -237,10 +240,10 @@ void event_delete( context_t *ctx, const long fd, event_handler_flags_t flags )
 			entry->flags = EH_UNUSED;
 
 		if( entry->flags == EH_UNUSED ) {
-			d_printf("No events for this file descriptor, disabling\n");
+			//x_printf(ctx,"No events for this file descriptor, disabling\n");
 			entry->fd = -1;
 		}
-		d_printf("EVENT remaining - fd = %ld, flags = %02x (%c)\n",entry->fd,entry->flags,entry->flags&EH_READ?'r':(entry->flags&EH_WRITE?'w':(entry->flags&EH_SPECIAL?'S':'?')));
+		//x_printf(ctx,"EVENT remaining - fd = %ld, flags = %02x (%c)\n",entry->fd,entry->flags,entry->flags&EH_READ?'r':(entry->flags&EH_WRITE?'w':(entry->flags&EH_SPECIAL?'S':'?')));
 	}
 }
 
@@ -423,6 +426,8 @@ int handle_event_set(fd_set * readfds, fd_set * writefds, fd_set * exceptfds)
 
 			if (alarm_table[event_table[i].fd].event_time <= now) {
 				alarm_table[event_table[i].fd].flags |= ALARM_FIRED;
+
+				//d_printf("Alarm marked as FIRED...\n");
 
 				driver_data_t       data = { TYPE_ALARM, 0, {} };
 				data.event_alarm = (int) event_table[i].fd;

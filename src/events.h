@@ -172,7 +172,7 @@ typedef struct event_child_s
 {
 	context_t          *ctx;
 	child_status_t      action;
-	int                 status;
+	unsigned long       status;
 } event_child_t;
 
 typedef struct event_data_s

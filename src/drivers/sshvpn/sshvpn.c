@@ -329,7 +329,7 @@ ssize_t sshvpn_handler(context_t *ctx, event_t event, driver_data_t *event_data 
 						break;
 					case CHILD_EVENT:
 						cf->flags |= SSHVPN_TRANSPORT_UP;
-						x_printf(ctx,"Got a CHILD_EVENT status = %d, launching network driver\n",child->status);
+						x_printf(ctx,"Got a CHILD_EVENT status = %u, launching network driver\n",(unsigned int) child->status);
 
 						if( !cf->network ) {
 							x_printf(ctx,"calling start_service(%s)\n",cf->network_driver);

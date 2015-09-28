@@ -186,7 +186,16 @@ context_t *context_create(const char *service_name, const config_t *service_conf
 	return ptr;
 }
 
-void context_owner_notify( context_t *ctx, child_status_t state, int status )
+void driver_cleanup(void)
+{
+	int i;
+	for( i = 0; i < MAX_CONTEXTS; i++ ) {
+		if( context_table[i].state != CTX_UNUSED )
+			context_terminate( & context_table[i] );
+	}
+}
+
+void context_owner_notify( context_t *ctx, child_status_t state, unsigned long status )
 {
 	if( ctx->owner ) {
 		driver_data_t notification = { TYPE_CHILD, ctx, {} };
@@ -202,6 +211,9 @@ int context_terminate( context_t *ctx )
 	int i;
 
 	x_printf(ctx,"Context_Terminate called for %s\n",ctx->name);
+
+	if( ctx->state == CTX_UNUSED )
+		return 0;
 
 	for( i = 0; i < MAX_EVENT_REQUESTS; i++ ) {
 		if (event_table[i].ctx == ctx) {

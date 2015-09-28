@@ -130,7 +130,7 @@ int config_get_timeval(const config_t *section, const char *item, time_t *pval)
 	}
 
 	*pval = val;
-	return 0;
+	return 1;
 }
 
 int config_istrue(const config_t * section, const char *item, int def)
