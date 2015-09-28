@@ -26,9 +26,13 @@ build_config = env.Clone()
 
 build_config.Replace( CCFLAGS = ' -Wall -Wconversion -Werror -Wshadow -Wunused-parameter' )
 build_config.Replace( LIBS = '' )
+
 if platform == 'i386':
     build_config.Append( CCFLAGS = ' -Wenum-compare -Warray-bounds -m32' )
     build_config.Append( LINKFLAGS = '-m32' )
+
+if platform == 'amd64':
+    build_config.Append( CCFLAGS = ' -Wenum-compare -Warray-bounds' )
 
 if platform == 'hvc-50x':
     print "Building for HVC"

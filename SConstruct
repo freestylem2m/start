@@ -49,6 +49,10 @@ if platform == 'i386':
     build_config.Append(LINKFLAGS = '-m32' )
     libs.append( '-lrt' )
 
+if platform == 'amd64':
+    build_config.Append(CCFLAGS = '-Wenum-compare -Wshadow -Warray-bounds' )
+    libs.append( '-lrt' )
+
 if platform == 'hvc-50x':
     print "Building for HVC"
     compiler = '/opt/buildroot-gcc342/bin/mipsel-linux-gcc'
