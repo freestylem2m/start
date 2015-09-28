@@ -92,10 +92,10 @@ typedef struct format_content_s
 #define __printf(x)       printf("%s\n",x)
 
 #define c_hexdump(data,bytes, func, ...) { \
-	size_t _l = HEXDUMP_BUFFER_MIN; \
-	char  *_o = alloca( _l ); \
-	size_t _s = format_hex( _o, _l, data, bytes ); \
-	if( _s > _l ) { _o = alloca( _s ); format_hex( _o, _s, buf, bytes ); } \
+	size_t _xl = HEXDUMP_BUFFER_MIN; \
+	char  *_o = alloca( _xl ); \
+	size_t _s = format_hex( _o, _xl, data, bytes ); \
+	if( _s > _xl ) { _o = alloca( _s ); format_hex( _o, _s, buf, bytes ); } \
 	while( *_o ) { func(_o, ## __VA_ARGS__ ); _o += strlen(_o)+1; } \
 }
 
