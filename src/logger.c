@@ -1,3 +1,6 @@
+#ifndef NDEBUG
+#define NDEBUG
+#endif
 /*
  * File: logger.c
  *
@@ -42,10 +45,11 @@ void logger(context_t *source, char *fmt, ...) {
 
 	if( ! logger_context ) {
 		const char *logdriver = config_item( "global", "logger" );
-		if( logdriver )
+		if( logdriver ) {
 			d_printf("Starting logging service %s\n",logdriver);
 			start_service( & logger_context, logdriver, config_get_section( "global" ), 0L, 0L );
 			d_printf("logger context = %p\n",logger_context);
+		}
 	}
 
 	va_list fmt_args;
@@ -64,7 +68,6 @@ void logger(context_t *source, char *fmt, ...) {
 		event.event_data.data = log_buffer;
 		emit( logger_context, EVENT_LOGGING, &event );
 	} else {
-		d_printf("Writing log to stderr\n");
 		time_t spec = time(0L);
 		char spec_buffer[64];
 		d_printf("No Logging context, defaulting to stderr\n");

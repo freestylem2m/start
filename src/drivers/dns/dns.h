@@ -37,9 +37,10 @@ typedef struct dns_config_t
 
 	int             sock_fd;
 	char            dns_servers[10][32];	// List of DNS servers
-	int             dns_max_servers;	// Number of DNS server addresses loaded
-	int             dns_current;	// Index of current server
-	int             dns_retries;	// Number of retries (== max_servers)
+	int             dns_max_servers;    	// Number of DNS server addresses loaded
+	int             dns_current;	        // Index of current server
+	int             dns_retries;	        // Number of retries (== dns_max_retry)
+	int             dns_max_retry;          // Number of retries (>= dns_max_servers)
 
 	char           *current_host;
 

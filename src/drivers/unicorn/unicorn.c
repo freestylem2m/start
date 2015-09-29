@@ -1,3 +1,6 @@
+#ifndef NDEBUG
+#define NDEBUG
+#endif
 /*
  * File: unicorn.c
  *
@@ -114,7 +117,7 @@ ssize_t process_unicorn_header( context_t *ctx )
 
 				if( cf->msgHdr.state == CMD_ST_ONLINE || cf->msgHdr.state == CMD_ST_OFFLINE || cf->msgHdr.state == CMD_ST_ERROR ) {
 					x_printf(ctx,"Notifying parent that the network state has changed to %s\n",cf->msgHdr.state == CMD_ST_ONLINE ? "online":"offline");
-					context_owner_notify( ctx, CHILD_EVENT, cf->msgHdr.state == CMD_ST_ONLINE ? UNICORN_MODE_ONLINE : UNICORN_MODE_OFFLINE );
+					context_owner_notify( ctx, CHILD_EVENT, (child_status_t) (cf->msgHdr.state == CMD_ST_ONLINE ? UNICORN_MODE_ONLINE : UNICORN_MODE_OFFLINE) );
 				}
 
 				if( cf->flags & UNICORN_TERMINATING ) {
@@ -139,6 +142,7 @@ ssize_t process_unicorn_header( context_t *ctx )
 							if( cf->flags & UNICORN_FIRST_START) {
 								x_printf(ctx,"Forcing connection - FIRST_START is set\n");
 								send_unicorn_command(ctx, CMD_CONNECT, CMD_ST_ONLINE, 0, 0 );
+								cf->flags &= ~(unsigned int) (UNICORN_FIRST_START);
 								cf->flags |= UNICORN_WAITING_FOR_CONNECT;
 							} else {
 								x_printf(ctx,"Setting up for delayed connection\n");
@@ -231,7 +235,7 @@ ssize_t unicorn_handler(context_t *ctx, event_t event, driver_data_t *event_data
 
 	unicorn_config_t *cf = (unicorn_config_t *) ctx->data;
 
-	x_printf(ctx, "<%s> Event = \"%s\" (%d)\n", ctx->name, event_map[event], event);
+	//x_printf(ctx, "<%s> Event = \"%s\" (%d)\n", ctx->name, event_map[event], event);
 
 	if (event_data->type == TYPE_DATA)
 		data = &event_data->event_data;
@@ -239,229 +243,237 @@ ssize_t unicorn_handler(context_t *ctx, event_t event, driver_data_t *event_data
 		child = & event_data->event_child;
 
 	switch (event) {
-	case EVENT_INIT:
-		{
-			x_printf(ctx,"calling event add SIGQUIT\n");
-			event_add( ctx, SIGQUIT, EH_SIGNAL );
-			x_printf(ctx,"calling event add SIGTERM\n");
-			event_add( ctx, SIGTERM, EH_SIGNAL );
-			x_printf(ctx,"calling event 1000 EH_WANT_TICK\n");
-			event_add( ctx, 1000, EH_WANT_TICK );
+		case EVENT_INIT:
+			{
+				x_printf(ctx,"calling event add SIGQUIT\n");
+				event_add( ctx, SIGQUIT, EH_SIGNAL );
+				x_printf(ctx,"calling event add SIGTERM\n");
+				event_add( ctx, SIGTERM, EH_SIGNAL );
+				x_printf(ctx,"calling event 1000 EH_WANT_TICK\n");
+				event_add( ctx, 1000, EH_WANT_TICK );
 
-			cf->driver = config_get_item( ctx->config, "endpoint" );
+				cf->driver = config_get_item( ctx->config, "endpoint" );
 
-			if( ! config_get_timeval( ctx->config, "retry", &cf->retry_time ) )
-				cf->retry_time = 120*1000;
+				if( ! config_get_timeval( ctx->config, "retry", &cf->retry_time ) )
+					cf->retry_time = 120*1000;
 
-			if( cf->driver )
-				start_service( &cf->modem, cf->driver, ctx->config, ctx, 0L );
-
-			if( !cf->modem ) {
-				logger( ctx, "Unable to launch modem driver. Exiting\n" );
-				cf->state = UNICORN_STATE_ERROR;
-				context_terminate( ctx );
-				return -1;
-			}
-
-			cf->state = UNICORN_STATE_IDLE;
-		}
-		break;
-
-	case EVENT_TERMINATE:
-		{
-			cf->pending_action_timeout = rel_time(0L);
-
-			cf->flags |= UNICORN_TERMINATING; // In process of terminating the modem driver
-			cf->state  = UNICORN_STATE_STOPPING; // In process of terminating self
-
-			// Ensure 'exec' driver known not to restart when the modem driver terminates.
-			// If the modem driver is something other than 'exec', this should be ignored.
-			uint8_t flag = 0;
-			driver_data_t notification = { TYPE_CUSTOM, ctx, {} };
-			notification.event_custom = &flag;
-			emit(cf->modem, EXEC_SET_RESPAWN, &notification);
-
-			if( cf->driver_state == CMD_ST_ONLINE ) {
-				x_printf(ctx,"Driver is online - sending disconnect\n");
-				send_unicorn_command( ctx, CMD_DISCONNECT, CMD_ST_OFFLINE, 0, 0L );
-			} else {
-				x_printf(ctx,"Driver is offline - sending shutdown\n");
-				send_unicorn_command( ctx, CMD_STATE, CMD_ST_OFFLINE, 0, 0L );
-			}
-		}
-		break;
-
-	case EVENT_RESTART:
-		// This event is used to signal that the modem driver needs to resync.
-		// set the 'reconnecting' flag and send a disconnect
-		x_printf(ctx,"EVENT_RESTART: - sending disconnect to modem\n");
-		logger(ctx, "Sending disconnect command to modem driver");
-		if( event_data->source == ctx->owner ) {
-			cf->pending_action_timeout = rel_time(0L);
-			cf->flags |= UNICORN_WAITING_FOR_CONNECT;
-			if( cf->modem ) {
-				x_printf(ctx, "Sending CMD_DISCONNECT to modem driver (%s)\n",cf->modem->name);
-				send_unicorn_command( ctx, CMD_DISCONNECT, CMD_ST_OFFLINE, 0, 0L );
-			} else {
-				x_printf(ctx, "Modem driver not running.. doing nothing.\n");
-			}
-		} else {
-			x_printf(ctx,"Forwarding EVENT_RESTART to owner (%s)\n",ctx->name);
-			emit2( ctx, EVENT_RESTART, event_data);
-		}
-		break;
-
-	case EVENT_CHILD:
-		x_printf(ctx,"Got a message from a child (%s:%d).. probably starting\n", child->ctx->name, child->action);
-		if ( child->ctx == cf->modem ) {
-			if( child->action == CHILD_STARTING ) {
-				cf->state = UNICORN_STATE_RUNNING;
-				cf->flags &= ~(unsigned int) UNICORN_RESTARTING;
-			}
-
-			if ( child->action == CHILD_STOPPED ) {
-				x_printf(ctx,"Modem driver terminated - restart or terminate\n");
-				// modem driver terminated.  Restart or exit.
-				cf->state = UNICORN_STATE_IDLE;
-				if ( cf->flags & UNICORN_TERMINATING ) {
-					x_printf(ctx,"Terminating immediately\n");
-					context_terminate( ctx );
-				} else {
-					x_printf(ctx,"Need to restart modem driver\n");
-					cf->flags |= UNICORN_RESTARTING;
-					cf->pending_action_timeout = rel_time(0L);
-					// Reset the driver state, and notify the parent that we are offline
-					cf->driver_state = CMD_ST_UNKNOWN;
-					context_owner_notify( ctx, CHILD_EVENT, UNICORN_MODE_OFFLINE );
-				}
-			}
-		}
-		break;
-
-	case EVENT_DATA_INCOMING:
-	case EVENT_DATA_OUTGOING:
-		if( event_data->source == cf->modem ) {
-
-			size_t bytes = data->bytes;
-			size_t offset = 0;
-
-			while( bytes ) {
-
-				size_t to_read = u_ringbuf_avail( &cf->input );
-				if( to_read > bytes )
-					to_read = bytes;
-
-				u_ringbuf_write( &cf->input, &((char *)data->data)[offset], to_read );
-
-				bytes -= to_read;
-				offset += to_read;
-
-				while(process_unicorn_packet(ctx) >= 0);
-			}
-
-			return (ssize_t) offset;
-		} else {
-			send_unicorn_command( ctx, CMD_DATA, CMD_ST_ONLINE, data->bytes,data->data);
-			return (ssize_t) data->bytes;
-		}
-
-		break;
-
-	case EVENT_READ:
-		break;
-
-	case EVENT_EXCEPTION:
-		break;
-
-	case EVENT_SIGNAL:
-		x_printf(ctx,"Woa! Got a sign from the gods... %d\n", event_data->event_signal);
-		if( event_data->event_signal == SIGQUIT || event_data->event_signal == SIGTERM )
-			emit( ctx, EVENT_TERMINATE, 0L );
-		break;
-
-	case EVENT_TICK:
-		{
-			time_t now = rel_time(0L);
-
-			// Handle case where a massive time shift due to NTP resync causes all timeouts to fire simultaneously
-			// This is technically deprecated due to the use of rel_time()
-			if( (now - cf->last_message) > MAXIMUM_SAFE_TIMEDELTA ) {
-				logger(ctx, "WARNING: Resetting timeout due to RTC time change");
-				cf->last_message = now;
-			}
-
-			if( ((now - cf->last_message) > UNICORN_KEEPALIVE_TIMEOUT ) && ( cf->driver_state != CMD_ST_UNKNOWN )) {
-
-				if( ~ cf->flags & UNICORN_LAGGED ) {
-					// Its been a couple of minutes since the last keepalive, reset the driver_state
-					// to unknown and prompt for one.
-					logger(ctx,"Forcing connection state request due to communications timeout.\n");
-					cf->flags |= UNICORN_LAGGED;
-					cf->retry_count = UNICORN_KEEPALIVE_RETRY_MAX;
-				}
-
-				if( cf->retry_count ) {
-					send_unicorn_command( ctx, CMD_STATE, CMD_ST_OFFLINE, 0, 0L );
-					cf->retry_count --;
-				} else {
-					// Its been a long time since the last message, despite prompting for one
-					// restart the modem driver
-
-					logger(ctx, "Communications timeout. Restarting modem driver.");
-					uint8_t sig = SIGHUP;
-					driver_data_t notification = { TYPE_CUSTOM, ctx, {} };
-					notification.event_custom = &sig;
-
-					emit( cf->modem, EVENT_RESTART, &notification );
-				}
-				cf->last_message = now;
-			}
-
-			if( (cf->flags & UNICORN_RESTARTING) && ((now - cf->pending_action_timeout) > UNICORN_RESTART_DELAY )) {
-				x_printf(ctx,"Restart delay expired - restarting modem driver\n");
-				cf->pending_action_timeout = rel_time(0L);
 				if( cf->driver )
 					start_service( &cf->modem, cf->driver, ctx->config, ctx, 0L );
-			} else if( (cf->flags & UNICORN_RECONNECTING) && ((now - cf->pending_action_timeout) > cf->retry_time )) {
-				x_printf(ctx,"Reconnect delay expired - attempting reconnect\n");
+
+				if( !cf->modem ) {
+					logger( ctx, "Unable to launch modem driver. Exiting\n" );
+					cf->state = UNICORN_STATE_ERROR;
+					context_terminate( ctx );
+					return -1;
+				}
+
+				cf->state = UNICORN_STATE_IDLE;
+			}
+			break;
+
+		case EVENT_TERMINATE:
+			{
 				cf->pending_action_timeout = rel_time(0L);
-				cf->flags &= ~(unsigned int)UNICORN_RECONNECTING;
-				if( cf->modem )
-					send_unicorn_command(ctx, CMD_CONNECT, CMD_ST_ONLINE, 0, 0 );
-			} else if( (cf->flags & UNICORN_WAITING_FOR_CONNECT) && ((now - cf->pending_action_timeout) > UNICORN_CONNECT_TIMEOUT )) {
-				x_printf(ctx,"Timeout during connect - terminating modem driver\n");
-				cf->flags &= ~(unsigned int) UNICORN_WAITING_FOR_CONNECT;
-				cf->state = UNICORN_STATE_IDLE;
-				if( cf->modem )
-					emit( cf->modem, EVENT_TERMINATE, 0L );
+
+				cf->flags |= UNICORN_TERMINATING; // In process of terminating the modem driver
+				cf->state  = UNICORN_STATE_STOPPING; // In process of terminating self
+
+				// Ensure 'exec' driver known not to restart when the modem driver terminates.
+				// If the modem driver is something other than 'exec', this should be ignored.
+				uint8_t flag = 0;
+				driver_data_t notification = { TYPE_CUSTOM, ctx, {} };
+				notification.event_custom = &flag;
+				emit(cf->modem, EXEC_SET_RESPAWN, &notification);
+
+				if( cf->driver_state == CMD_ST_ONLINE ) {
+					x_printf(ctx,"Driver is online - sending disconnect\n");
+					send_unicorn_command( ctx, CMD_DISCONNECT, CMD_ST_OFFLINE, 0, 0L );
+				} else {
+					x_printf(ctx,"Driver is offline - sending shutdown\n");
+					send_unicorn_command( ctx, CMD_STATE, CMD_ST_OFFLINE, 0, 0L );
+				}
+			}
+			break;
+
+		case EVENT_RESTART:
+			// This event is used to signal that the modem driver needs to resync.
+			// set the 'reconnecting' flag and send a disconnect
+			x_printf(ctx,"EVENT_RESTART: - sending disconnect to modem\n");
+			//logger(ctx, "Sending disconnect command to modem driver");
+			if( event_data->source == ctx->owner ) {
+				cf->pending_action_timeout = rel_time(0L);
+				cf->flags |= UNICORN_WAITING_FOR_CONNECT;
+				if( cf->modem ) {
+					x_printf(ctx, "Sending CMD_DISCONNECT to modem driver (%s)\n",cf->modem->name);
+					if( (event_data->type == TYPE_CUSTOM) && event_data->event_custom ) {
+						logger(ctx, "Sending abort command to modem driver due to unexpected disconnect");
+						send_unicorn_command( ctx, CMD_ABORT, CMD_ST_OFFLINE, 0, 0L );
+					} else {
+						logger(ctx, "Sending disconnect command to modem driver");
+						send_unicorn_command( ctx, CMD_DISCONNECT, CMD_ST_OFFLINE, 0, 0L );
+					}
+				} else {
+					x_printf(ctx, "Modem driver not running.. doing nothing.\n");
+				}
+			} else {
+				x_printf(ctx,"Forwarding EVENT_RESTART to owner (%s)\n",ctx->name);
+				emit2( ctx, EVENT_RESTART, event_data);
+			}
+			break;
+
+		case EVENT_CHILD:
+			x_printf(ctx,"Got a message from a child (%s:%d).. probably starting\n", child->ctx->name, child->action);
+			if ( child->ctx == cf->modem ) {
+				if( child->action == CHILD_STARTING ) {
+					cf->state = UNICORN_STATE_RUNNING;
+					cf->flags &= ~(unsigned int) UNICORN_RESTARTING;
+					// Assume ensure the first time the modem driver starts it skips the connection delay
+					cf->flags |= UNICORN_FIRST_START;
+				}
+
+				if ( child->action == CHILD_STOPPED ) {
+					x_printf(ctx,"Modem driver terminated - restart or terminate\n");
+					// modem driver terminated.  Restart or exit.
+					cf->state = UNICORN_STATE_IDLE;
+					if ( cf->flags & UNICORN_TERMINATING ) {
+						x_printf(ctx,"Terminating immediately\n");
+						context_terminate( ctx );
+					} else {
+						x_printf(ctx,"Need to restart modem driver\n");
+						cf->flags |= UNICORN_RESTARTING;
+						cf->pending_action_timeout = rel_time(0L);
+						// Reset the driver state, and notify the parent that we are offline
+						cf->driver_state = CMD_ST_UNKNOWN;
+						context_owner_notify( ctx, CHILD_EVENT, UNICORN_MODE_OFFLINE );
+					}
+				}
+			}
+			break;
+
+		case EVENT_DATA_INCOMING:
+		case EVENT_DATA_OUTGOING:
+			if( event_data->source == cf->modem ) {
+
+				size_t bytes = data->bytes;
+				size_t offset = 0;
+
+				while( bytes ) {
+
+					size_t to_read = u_ringbuf_avail( &cf->input );
+					if( to_read > bytes )
+						to_read = bytes;
+
+					u_ringbuf_write( &cf->input, &((char *)data->data)[offset], to_read );
+
+					bytes -= to_read;
+					offset += to_read;
+
+					while(process_unicorn_packet(ctx) >= 0);
+				}
+
+				return (ssize_t) offset;
+			} else {
+				send_unicorn_command( ctx, CMD_DATA, CMD_ST_ONLINE, data->bytes,data->data);
+				return (ssize_t) data->bytes;
 			}
 
-			if( (cf->flags & UNICORN_TERMINATING) && ((now - cf->pending_action_timeout) > UNICORN_PROCESS_TERMINATION_TIMEOUT)) {
-				x_printf(ctx,"termination timeout - killing the modem driver with prejudice\n");
-				cf->state = UNICORN_STATE_IDLE;
-				if( cf->modem )
-					context_terminate( cf->modem );
-				context_terminate( ctx );
-			}
+			break;
 
-			// Special case.. If I am expecting a data frame, and it takes too long to arrive,
-			// reset state.
-			if( (cf->flags & UNICORN_EXPECTING_DATA) && ((now - cf->last_message) > FRAME_TIMEOUT)) {
-				x_printf(ctx,"FRAME TIMEOUT - resetting input buffer\n");
-				u_ringbuf_init( &cf->input );
-				cf->flags &= ~(unsigned int)UNICORN_EXPECTING_DATA;
-			}
+		case EVENT_READ:
+			break;
+
+		case EVENT_EXCEPTION:
+			break;
+
+		case EVENT_SIGNAL:
+			x_printf(ctx,"Woa! Got a sign from the gods... %d\n", event_data->event_signal);
+			if( event_data->event_signal == SIGQUIT || event_data->event_signal == SIGTERM )
+				emit( ctx, EVENT_TERMINATE, 0L );
+			break;
+
+		case EVENT_TICK:
+			{
+				time_t now = rel_time(0L);
+
+				// Handle case where a massive time shift due to NTP resync causes all timeouts to fire simultaneously
+				// This is technically deprecated due to the use of rel_time()
+				if( (now - cf->last_message) > MAXIMUM_SAFE_TIMEDELTA ) {
+					logger(ctx, "WARNING: Resetting timeout due to RTC time change");
+					cf->last_message = now;
+				}
+
+				if( ((now - cf->last_message) > UNICORN_KEEPALIVE_TIMEOUT ) && ( cf->driver_state != CMD_ST_UNKNOWN )) {
+
+					if( ~ cf->flags & UNICORN_LAGGED ) {
+						// Its been a couple of minutes since the last keepalive, reset the driver_state
+						// to unknown and prompt for one.
+						logger(ctx,"Forcing connection state request due to communications timeout.\n");
+						cf->flags |= UNICORN_LAGGED;
+						cf->retry_count = UNICORN_KEEPALIVE_RETRY_MAX;
+					}
+
+					if( cf->retry_count ) {
+						send_unicorn_command( ctx, CMD_STATE, CMD_ST_OFFLINE, 0, 0L );
+						cf->retry_count --;
+					} else {
+						// Its been a long time since the last message, despite prompting for one
+						// restart the modem driver
+
+						logger(ctx, "Communications timeout. Restarting modem driver.");
+						uint8_t sig = SIGHUP;
+						driver_data_t notification = { TYPE_CUSTOM, ctx, {} };
+						notification.event_custom = &sig;
+
+						emit( cf->modem, EVENT_RESTART, &notification );
+					}
+					cf->last_message = now;
+				}
+
+				if( (cf->flags & UNICORN_RESTARTING) && ((now - cf->pending_action_timeout) > UNICORN_RESTART_DELAY )) {
+					x_printf(ctx,"Restart delay expired - restarting modem driver\n");
+					cf->pending_action_timeout = rel_time(0L);
+					if( cf->driver )
+						start_service( &cf->modem, cf->driver, ctx->config, ctx, 0L );
+				} else if( (cf->flags & UNICORN_RECONNECTING) && ((now - cf->pending_action_timeout) > cf->retry_time )) {
+					x_printf(ctx,"Reconnect delay expired - attempting reconnect\n");
+					cf->pending_action_timeout = rel_time(0L);
+					cf->flags &= ~(unsigned int)UNICORN_RECONNECTING;
+					if( cf->modem )
+						send_unicorn_command(ctx, CMD_CONNECT, CMD_ST_ONLINE, 0, 0 );
+				} else if( (cf->flags & UNICORN_WAITING_FOR_CONNECT) && ((now - cf->pending_action_timeout) > UNICORN_CONNECT_TIMEOUT )) {
+					x_printf(ctx,"Timeout during connect - terminating modem driver\n");
+					cf->flags &= ~(unsigned int) UNICORN_WAITING_FOR_CONNECT;
+					cf->state = UNICORN_STATE_IDLE;
+					if( cf->modem )
+						emit( cf->modem, EVENT_TERMINATE, 0L );
+				}
+
+				if( (cf->flags & UNICORN_TERMINATING) && ((now - cf->pending_action_timeout) > UNICORN_PROCESS_TERMINATION_TIMEOUT)) {
+					x_printf(ctx,"termination timeout - killing the modem driver with prejudice\n");
+					cf->state = UNICORN_STATE_IDLE;
+					if( cf->modem )
+						context_terminate( cf->modem );
+					context_terminate( ctx );
+				}
+
+				// Special case.. If I am expecting a data frame, and it takes too long to arrive,
+				// reset state.
+				if( (cf->flags & UNICORN_EXPECTING_DATA) && ((now - cf->last_message) > FRAME_TIMEOUT)) {
+					x_printf(ctx,"FRAME TIMEOUT - resetting input buffer\n");
+					u_ringbuf_init( &cf->input );
+					cf->flags &= ~(unsigned int)UNICORN_EXPECTING_DATA;
+				}
 
 #ifndef NDEBUG
-			size_t bytes = u_ringbuf_ready( &cf->input );
-			if( bytes )
-				x_printf(ctx,"Un-processed data in ring buffer... %d bytes\n",(int)bytes);
+				size_t bytes = u_ringbuf_ready( &cf->input );
+				if( bytes )
+					x_printf(ctx,"Un-processed data in ring buffer... %d bytes\n",(int)bytes);
 #endif
-		}
-		break;
+			}
+			break;
 
-	default:
-		x_printf(ctx,"\n *\n *\n * Emitted some kind of event \"%s\" (%d)\n *\n *\n", event_map[event], event);
+		default:
+			x_printf(ctx,"\n *\n *\n * Emitted some kind of event \"%s\" (%d)\n *\n *\n", event_map[event], event);
 	}
 	return 0;
 }

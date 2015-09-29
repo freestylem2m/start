@@ -61,6 +61,7 @@ typedef enum cmdHost_e
     CMD_CONFIGURE,
     CMD_DATA,
     CMD_DELAY,
+	CMD_ABORT,
 
 } cmdHost_t;
 

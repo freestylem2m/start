@@ -57,7 +57,7 @@ context_t *safe_start_service( context_t **pctx, const char *name, const config_
 
     if( service_config == parent_config || depth > CONFIG_MAX_DEPTH ) {
         fprintf(stderr, "Error starting service %s: recursion in service configuration\n", name);
-        exit (0);
+        cleanup (0);
     }
 
 	if( service_config ) {
@@ -77,7 +77,7 @@ context_t *safe_start_service( context_t **pctx, const char *name, const config_
 		}
 	} else {
         fprintf(stderr, "Unable to find service %s\n", name);
-        exit (0);
+        cleanup (0);
 	}
 	return ctx;
 }
@@ -150,6 +150,15 @@ void run()
 	d_printf("I'm outa here!\n");
 }
 
+void cleanup(int code)
+{
+	driver_cleanup();
+	config_cleanup();
+	cleanup_pid_file();
+
+	exit( code );
+}
+
 int main(int ac, char *av[])
 {
 	int last_pid = 0;
@@ -163,7 +172,7 @@ int main(int ac, char *av[])
 
 	if( (last_pid = check_pid_file()) ) {
 		fprintf(stderr,"%s process already running (pid = %d)\n",av[0],last_pid);
-		exit( 1 );
+		cleanup( 1 );
 	}
 
 	const char **default_service = config_itemlist( "global", "default" );
@@ -180,7 +189,7 @@ int main(int ac, char *av[])
 
 		if( !coord ) {
 			fprintf(stderr,"Failed to start default service (%s)\n", *default_service );
-			exit(0);
+			cleanup(1);
 		}
 
 		default_service ++;
@@ -189,9 +198,7 @@ int main(int ac, char *av[])
 
 	run();
 
-	driver_cleanup();
-	config_cleanup();
-	cleanup_pid_file();
-
+	cleanup(0);
+	/* NOT_REACHED */
 	return 0;
 }

@@ -545,16 +545,17 @@ int event_loop( long timeout )
 	sigprocmask(SIG_BLOCK, &event_signals.event_signal_mask, NULL);
 
 	if( rc < 0 ) {
-		d_printf("(p)select returned %d (errno = %d - %s)\n",rc, errno, strerror(errno));
-
 		if( (errno != EINTR)
 #ifdef mips
 				&& (errno != ENOENT)
 #endif
-				)
-			return -1; // timeout - nothing to do
-		else
-			return 0;
+		  ) {
+			d_printf("(p)select returned %d (errno = %d - %s)\n",rc, errno, strerror(errno));
+			exit(0);
+			return -1;
+		} else {
+			return 0;  // timeout - nothing to do
+		}
 	}
 
 	if( event_signals.event_signal_pending_count ) {

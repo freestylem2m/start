@@ -120,7 +120,9 @@ context_t *start_driver( context_t **pctx, const char *driver_name, const char *
 
 				if( ctx->state == CTX_UNUSED ) {
 					d_printf("Driver %s failed to start, cleaning context pointer\n", ctx->name);
-					*pctx = ctx = 0L;
+					ctx = 0L;
+					if( pctx )
+						*pctx = 0L;
 				}
 
 				return ctx;

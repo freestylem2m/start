@@ -1,3 +1,6 @@
+#ifndef NDEBUG
+#define NDEBUG
+#endif
 /******************************************************************************************************
 *
 * Freestyle Technology Pty Ltd

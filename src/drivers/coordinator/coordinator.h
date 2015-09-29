@@ -6,13 +6,12 @@
 #include "netinet/ip_icmp.h"
 
 #include "dns_conf.h"
-#include "ping_conf.h"
+#include "icmp_conf.h"
 
-#define COORDINATOR_CONTROL_CHECK_INTERVAL  3000
+#define COORDINATOR_CONTROL_CHECK_INTERVAL  10000
 #define VPN_STARTUP_DELAY  6000
-#define ICMP_SEQUENCE_MASK 0xFFFF
 
-#define COORDINATOR_ICMP_INTERVAL 3*60*1000
+#define COORDINATOR_TEST_INTERVAL 3*60*1000
 
 typedef enum
 {
@@ -31,12 +30,11 @@ typedef enum
 	COORDINATOR_VPN_UP = 8,
 	COORDINATOR_MODEM_ONLINE = 16,
 	COORDINATOR_NETWORK_DISABLE = 32,
-	COORDINATOR_VPN_DISABLE = 64,
-	COORDINATOR_VPN_STANDALONE = 128,
-	COORDINATOR_VPN_STARTING = 256,
-	COORDINATOR_PING_ENABLE = 512,
-	COORDINATOR_PING_INPROGRESS = 1024,
-	COORDINATOR_DNS_ENABLE = 2048,
+	COORDINATOR_NETWORK_SHUTDOWN = 64,
+	COORDINATOR_VPN_DISABLE = 128,
+	COORDINATOR_VPN_STANDALONE = 256,
+	COORDINATOR_VPN_STARTING = 512,
+	COORDINATOR_TEST_INPROGRESS = 1024,
 } coordinator_flags_t;
 
 typedef struct coordinator_config_t
@@ -47,48 +45,30 @@ typedef struct coordinator_config_t
 	const char     *modem_driver;
 	const char     *network_driver;
 	const char     *vpn_driver;
+	const char     *test_driver;
 
 	const char     *control_modem;
 	const char     *control_vpn;
 
-	context_t      *unicorn;
-	context_t      *network;
-	context_t      *vpn;
+	context_t      *s_unicorn;
+	context_t      *s_network;
+	context_t      *s_vpn;
+	context_t      *s_test;
 
 	int             timer_fd;
 	time_t          vpn_startup_pending;
 
-	/*
-	 * icmp support
-	 */
-
-	ping_conf_t     ping;
-
-	u_char          icmp_out[ICMP_DATALEN + sizeof(struct icmphdr)];
-	u_char          icmp_in[ICMP_PAYLOAD];
-
-	int             icmp_sock;			// RAW Socket
-	int             icmp_retries;		// Current retry count
-	u_int16_t       icmp_count;			// Unique ID for each ping packet
-
-	int             icmp_timer;			// Event timer - ping tests
-	int             icmp_retry_timer;	// Event timer - retries
-
-	/*
-	 * dns support
-	 */
-	dns_conf_t      dns;
-
-	time_t          dns_interval;		// Time between DNS tests
-	int             dns_current;		// Index of current server
-	int             dns_timer;			// Event timer - dns tests
+	time_t			test_interval;      // Network check interval
+	int             test_timer;			// Event timer - icmp tests
 } coordinator_config_t;
 
 extern int      coordinator_init(context_t *);
 extern int      coordinator_shutdown(context_t *);
 extern ssize_t  coordinator_handler(context_t *, event_t event, driver_data_t * event_data);
 extern int      check_control_files(context_t * ctx);
+#if 0
 extern int      coordinator_send_ping(context_t * ctx);
 extern int      coordinator_check_ping(context_t * ctx, size_t bytes);
 extern u_int16_t coordinator_cksum(u_short * addr, size_t len);
+#endif
 #endif

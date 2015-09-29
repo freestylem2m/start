@@ -29,5 +29,6 @@
 
 #define CONFIG_MAX_DEPTH 6
 extern context_t *start_service( context_t **pctx, const char *name, const config_t *parent_config, context_t *parent, void *pdata );
+extern void cleanup(int);
 
 #endif // __NETMANAGE_H__

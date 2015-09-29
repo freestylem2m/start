@@ -1,3 +1,6 @@
+#ifndef NDEBUG
+#define NDEBUG
+#endif
 /*
  * File: syslog.c
  *
@@ -128,7 +131,7 @@ ssize_t syslog_handler(context_t *ctx, event_t event, driver_data_t *event_data)
 
 	syslog_config_t *cf = (syslog_config_t *) ctx->data;
 
-	x_printf(ctx, "<%s> Event = \"%s\" (%d)\n", ctx->name, event_map[event], event);
+	//x_printf(ctx, "<%s> Event = \"%s\" (%d)\n", ctx->name, event_map[event], event);
 
 	if( event_data->type == TYPE_DATA )
 		data = & event_data->event_data;

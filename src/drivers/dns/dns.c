@@ -105,16 +105,21 @@ ssize_t dns_handler(context_t *ctx, event_t event, driver_data_t *event_data )
 				const char *host = config_get_item( ctx->config, "host" );
 
 				if( ! config_get_timeval( ctx->config, "timeout", & cf->dns_timeout ))
-						cf->dns_timeout = DNS_DEFAULT_TIMEOUT;
+					cf->dns_timeout = DNS_DEFAULT_TIMEOUT;
+
+				if( ! config_get_intval( ctx->config, "retry", & cf->dns_max_retry ))
+					cf->dns_max_retry = 5;
 
 				dns_load_servers(ctx, resolver);
 				cf->current_host = strdup( host );
+				if( cf->dns_max_retry < cf->dns_max_servers )
+					cf->dns_max_retry = cf->dns_max_servers;
 			}
 
 			cf->sock_fd = dns_resolve_host( ctx, cf->current_host );
 
 			if( cf->sock_fd >= 0 ) {
-				cf->dns_retries = cf->dns_max_servers ;
+				cf->dns_retries = cf->dns_max_retry ;
 				cf->dns_timer = event_alarm_add( ctx, cf->dns_timeout, ALARM_TIMER );
 				event_add( ctx, cf->sock_fd, EH_READ );
 				x_printf(ctx,"attempting to resolve hostname %s (%d attempts)\n",cf->current_host, cf->dns_retries );

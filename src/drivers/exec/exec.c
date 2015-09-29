@@ -1,3 +1,6 @@
+#ifndef NDEBUG
+#define NDEBUG
+#endif
 /*
  * File: exec.c
  *
@@ -392,7 +395,7 @@ ssize_t exec_handler(context_t *ctx, event_t event, driver_data_t *event_data )
 	else if( event_data->type == TYPE_DATA )
 		data = & event_data->event_data;
 
-	x_printf(ctx, "<%s> Event = \"%s\" (%d)\n", ctx->name, event_map[event], event);
+	//x_printf(ctx, "<%s> Event = \"%s\" (%d)\n", ctx->name, event_map[event], event);
 
 	switch( event ) {
 		case EVENT_INIT:

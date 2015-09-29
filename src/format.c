@@ -146,44 +146,57 @@ size_t format_string(char *buffer, size_t length, const char *format, format_con
 	return i > length ? length : i;
 }
 
+/*
+ * Format a binary string as a hex dump
+ *
+ * The hexdump output may span many lines, the output is broken into
+ * lines of text containing <addr>: <16 bytes data in hex> <16 bytes data in ascii><NULL>
+ * with an additional terminating NULL.
+ *
+ * The return value is the number of bytes requires for the hexdump buffer.
+ *
+ * If the return greater than the length passes, the function must be called again with
+ * a new buffer of the new length to get a complete hex dump
+ */
+
 size_t format_hex(char *buffer, size_t length, const unsigned char *buff, size_t bytes)
 {
-	int idx = 0;
+	size_t idx = 0;
 	size_t o = 0;
 	size_t addr = 0;
-
-	char *index;
+	size_t bytes_per_line = 16;
 
 	if (! bytes )
 		return 0;
 
-	memset((void *)(index = buffer), 0, length);
+	memset((void *)buffer, 0, length);
 
 	while( bytes ) {
 		o += (size_t) snprintf(buffer+o, length>o?length-o:0, "   0x%04x: ", (int)addr);
-		for( idx = 0; idx < 16; idx ++ )
+		for( idx = 0; idx < bytes_per_line; idx ++ )
 			if( idx < bytes )
 				o += (size_t) snprintf(buffer+o, length>o?length-o:0, "%02x ", buff[idx] );
 			else
 				o += (size_t) snprintf(buffer+o, length>o?length-o:0, "   ");
 
 		o += (size_t) snprintf(buffer+o, length>o?length-o:0, " ");
-		for( idx = 0; idx < 16; idx ++ )
+
+		for( idx = 0; idx < bytes_per_line; idx ++ )
 			if( idx < bytes )
 				o += (size_t) snprintf(buffer+o, length>o?length-o:0, "%c", isprint(buff[idx])?buff[idx]:'.' );
 
-		buff += 16;
-		addr += 16;
-		bytes -= (bytes < 16) ? bytes : 16;
+		buff += bytes_per_line;
+		addr += bytes_per_line;
+		bytes -= (bytes < bytes_per_line) ? bytes : bytes_per_line;
+
 		if( length > o )
-			buffer[o++] = 0;
-		else
-			o++;
-	}
-	if( length > o )
-		buffer[o++] = 0;
-	else
+			buffer[o] = 0;
 		o++;
+	}
+
+	if( length > o )
+		buffer[o] = 0;
+	o++;
 
 	return o;
 }
